@@ -1,0 +1,32 @@
+[project]
+name = "deal-workspace"
+version = "0.1.0"
+description = "Grounded document question answering over per-project PDF corpora"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "pydantic==2.10.4",
+    "pydantic-settings==2.14.0",
+    "psycopg[binary,pool]==3.2.3",
+    "boto3==1.35.87",
+    "docling==2.130.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "hypothesis==6.123.2",
+    "httpx==0.28.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]
