@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Deal Workspace — Prototype</title>
+<style>
+  :root{
+    --ink:#101C2B;
+    --ink-soft:#2A3949;
+    --paper:#FBFBF9;
+    --surface:#FFFFFF;
+    --rail:#F4F6F8;
+    --line:#DFE4EA;
+    --line-soft:#EDF0F3;
+    --muted:#6A7686;
+    --pine:#1B6E68;
+    --pine-dk:#14544F;
+    --slate:#3E5C8A;
+    --ochre:#8C6D1F;
+    --brick:#8C2F39;
+    --brick-bg:#FBF0F1;
+    --amber-bg:#FDF6E9;
+
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --serif:ui-serif,Georgia,Cambria,"Times New Roman",serif;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+
+    --r:10px;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0;font-family:var(--sans);color:var(--ink);background:var(--paper);
+    font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;
+  }
+  button{font:inherit;color:inherit;cursor:pointer;border:none;background:none}
+  :focus-visible{outline:2px solid var(--pine);outline-offset:2px;border-radius:4px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+  /* ---------- demo harness ---------- */
+  .harness{
+    background:var(--ink);color:#DCE3EB;padding:10px 20px;
+    display:flex;align-items:center;gap:18px;flex-wrap:wrap;
+    border-bottom:3px solid var(--pine);
+  }
+  .harness .tag{
+    font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;
+    background:var(--pine);color:#fff;padding:3px 8px;border-radius:4px;white-space:nowrap;
+  }
+  .harness .lbl{font-size:12.5px;color:#93A2B4}
+  .roleswitch{display:flex;background:#1D2B3C;border-radius:8px;padding:3px;gap:2px}
+  .roleswitch button{
+    padding:5px 14px;border-radius:6px;font-size:12.5px;font-weight:600;color:#93A2B4;transition:.14s;
+  }
+  .roleswitch button[aria-pressed="true"]{background:var(--pine);color:#fff}
+  .roleswitch button:hover:not([aria-pressed="true"]){color:#DCE3EB}
+  .harness .spacer{flex:1}
+  .ghostbtn{
+    border:1px solid #33465C;padding:6px 13px;border-radius:7px;font-size:12.5px;color:#DCE3EB;transition:.14s;
+  }
+  .ghostbtn:hover{background:#1D2B3C}
+  .qcount{background:var(--brick);color:#fff;border-radius:9px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:6px}
+
+  /* ---------- app chrome ---------- */
+  .appbar{
+    background:var(--surface);border-bottom:1px solid var(--line);
+    padding:0 20px;height:56px;display:flex;align-items:center;gap:12px;
+  }
+  .mark{width:22px;height:22px;border-radius:6px;background:var(--pine);flex:none}
+  .brand{font-family:var(--serif);font-size:18px;font-weight:600;letter-spacing:-.01em}
+  .who{margin-left:auto;display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted)}
+  .avatar{width:26px;height:26px;border-radius:50%;background:var(--ink);color:#fff;
+    display:grid;place-items:center;font-size:10.5px;font-weight:700}
+
+  /* ---------- layout ---------- */
+  .shell{display:grid;grid-template-columns:250px 290px 1fr;height:calc(100vh - 56px - 47px);min-height:560px}
+  .rail{background:var(--rail);border-right:1px solid var(--line);overflow-y:auto;padding:18px 14px}
+  .mid{background:var(--surface);border-right:1px solid var(--line);overflow-y:auto;padding:18px 16px}
+  .work{background:var(--paper);overflow-y:auto;display:flex;flex-direction:column}
+
+  .eyebrow{
+    font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);margin:0 0 10px;font-weight:600;
+  }
+
+  /* ---------- projects ---------- */
+  .proj{
+    width:100%;text-align:left;background:var(--surface);border:1px solid var(--line);
+    border-radius:var(--r);padding:11px 12px;margin-bottom:8px;transition:.14s;
+  }
+  .proj:hover{border-color:#C3CCD6}
+  .proj[aria-current="true"]{border-color:var(--pine);box-shadow:0 0 0 1px var(--pine)}
+  .proj .nm{font-weight:600;font-size:13.5px;margin-bottom:6px;line-height:1.3}
+  .proj .meta{display:flex;align-items:center;gap:8px}
+  .badge{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    padding:2px 7px;border-radius:20px;color:#fff;font-weight:700;
+  }
+  .badge.owner{background:var(--pine)}
+  .badge.editor{background:var(--slate)}
+  .badge.viewer{background:var(--ochre)}
+  .proj .cnt{font-size:11.5px;color:var(--muted)}
+  .newproj{
+    width:100%;border:1px dashed #C3CCD6;border-radius:var(--r);padding:10px;
+    font-size:13px;color:var(--muted);transition:.14s;
+  }
+  .newproj:hover{border-color:var(--pine);color:var(--pine)}
+
+  /* ---------- documents ---------- */
+  .doc{
+    display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:7px;
+    font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);
+  }
+  .doc:nth-child(odd){background:var(--line-soft)}
+  .doc .dot{width:6px;height:6px;border-radius:50%;background:var(--pine);flex:none}
+  .doc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+  .doc.proc{background:var(--amber-bg)}
+  .doc.proc .dot{background:var(--ochre);animation:pulse 1.3s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .doc .st{font-size:10px;color:var(--ochre);font-family:var(--sans)}
+
+  .primary{
+    width:100%;background:var(--pine);color:#fff;padding:10px;border-radius:8px;
+    font-size:13px;font-weight:600;transition:.14s;margin-top:12px;
+  }
+  .primary:hover{background:var(--pine-dk)}
+  .primary[data-locked]{background:#DCE1E7;color:#93A0AD;cursor:help}
+
+  .sess{
+    width:100%;text-align:left;padding:9px 10px;border-radius:7px;transition:.14s;border:1px solid transparent;
+  }
+  .sess:hover{background:var(--line-soft)}
+  .sess[aria-current="true"]{background:#EAF2F1;border-color:var(--pine)}
+  .sess .t{font-size:12.5px;font-weight:500;margin-bottom:2px}
+  .sess .w{font-size:11px;color:var(--muted)}
+  .divider{height:1px;background:var(--line);margin:20px 0 16px}
+
+  /* ---------- working area ---------- */
+  .whead{
+    padding:16px 26px;border-bottom:1px solid var(--line);background:var(--surface);
+    display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+  }
+  .whead h1{font-family:var(--serif);font-size:21px;margin:0;font-weight:600;letter-spacing:-.01em}
+  .whead .sub{font-size:12.5px;color:var(--muted)}
+  .scroll{flex:1;overflow-y:auto;padding:26px}
+  .thread{max-width:760px;margin:0 auto}
+
+  .qrow{display:flex;justify-content:flex-end;margin-bottom:8px}
+  .q{
+    background:var(--ink);color:#F2F5F8;padding:11px 16px;border-radius:14px 14px 3px 14px;
+    font-size:14px;max-width:76%;
+  }
+  .qwho{font-size:11px;color:var(--muted);text-align:right;margin-bottom:20px;margin-top:6px}
+
+  /* the signature move: answers are memo-like, not chat bubbles */
+  .a{
+    background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--pine);
+    border-radius:4px;padding:20px 24px;margin-bottom:8px;
+  }
+  .a p{font-family:var(--serif);font-size:16.5px;line-height:1.62;margin:0 0 12px}
+  .a p:last-of-type{margin-bottom:0}
+  .cite{
+    font-family:var(--mono);font-size:11px;color:var(--pine);font-weight:700;
+    background:#EAF2F1;padding:1px 5px;border-radius:3px;vertical-align:1px;
+  }
+  .srcs{display:flex;flex-wrap:wrap;gap:7px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line-soft)}
+  .src{
+    font-family:var(--mono);font-size:10.5px;border:1px solid var(--line);border-radius:20px;
+    padding:4px 11px;color:var(--ink-soft);transition:.14s;
+  }
+  .src:hover{border-color:var(--pine);color:var(--pine)}
+  .src[data-locked]{border-style:dashed;color:var(--muted);cursor:help}
+  .a.nogrounds{border-left-color:var(--ochre);background:var(--amber-bg)}
+  .a.nogrounds p{font-style:italic}
+  .agap{margin-bottom:28px}
+
+  .empty{max-width:520px;margin:60px auto;text-align:center}
+  .empty h2{font-family:var(--serif);font-size:20px;margin:0 0 8px;font-weight:600}
+  .empty p{color:var(--muted);font-size:14px;margin:0 0 20px}
+
+  /* ---------- composer ---------- */
+  .composer{border-top:1px solid var(--line);background:var(--surface);padding:14px 26px}
+  .cinner{max-width:760px;margin:0 auto}
+  .chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:10px}
+  .chip{
+    font-size:12px;border:1px solid var(--line);border-radius:20px;padding:5px 12px;
+    color:var(--ink-soft);transition:.14s;
+  }
+  .chip:hover{border-color:var(--pine);color:var(--pine);background:#EAF2F1}
+  .cbox{display:flex;gap:10px;align-items:center}
+  .cbox input{
+    flex:1;border:1px solid var(--line);border-radius:9px;padding:11px 14px;font:inherit;font-size:14px;
+    background:var(--surface);color:var(--ink);
+  }
+  .cbox input:focus{outline:none;border-color:var(--pine);box-shadow:0 0 0 3px #EAF2F1}
+  .cbox input:disabled{background:var(--rail);color:var(--muted)}
+  .send{background:var(--pine);color:#fff;padding:11px 22px;border-radius:9px;font-size:13.5px;font-weight:600}
+  .send:disabled{background:#DCE1E7;color:#93A0AD;cursor:not-allowed}
+  .lockmsg{
+    background:var(--brick-bg);border:1px solid #E8CFD2;border-left:3px solid var(--brick);
+    border-radius:4px;padding:12px 16px;font-size:13px;color:var(--ink-soft);
+  }
+  .lockmsg strong{color:var(--brick)}
+
+  /* ---------- role change banner ---------- */
+  .banner{
+    background:#EAF2F1;border:1px solid #BFD9D6;border-radius:8px;padding:11px 15px;
+    font-size:13px;margin-bottom:20px;display:flex;gap:11px;align-items:flex-start;
+  }
+  .banner b{color:var(--pine-dk)}
+
+  /* ---------- explain popover ---------- */
+  .scrim{position:fixed;inset:0;background:rgba(16,28,43,.45);display:none;place-items:center;padding:24px;z-index:40}
+  .scrim.on{display:grid}
+  .modal{background:var(--surface);border-radius:14px;max-width:480px;width:100%;padding:26px 28px;
+    box-shadow:0 24px 60px rgba(16,28,43,.28)}
+  .modal h3{font-family:var(--serif);font-size:19px;margin:0 0 10px;font-weight:600}
+  .modal p{font-size:14px;color:var(--ink-soft);margin:0 0 14px;line-height:1.55}
+  .modal .rule{
+    background:var(--rail);border-left:3px solid var(--ochre);padding:11px 14px;border-radius:4px;
+    font-size:13px;margin-bottom:18px;
+  }
+  .mrow{display:flex;gap:10px;justify-content:flex-end}
+  .btn-quiet{border:1px solid var(--line);padding:9px 16px;border-radius:8px;font-size:13px}
+  .btn-quiet:hover{background:var(--rail)}
+  .btn-flag{background:var(--brick);color:#fff;padding:9px 16px;border-radius:8px;font-size:13px;font-weight:600}
+  .btn-flag:hover{filter:brightness(1.1)}
+
+  /* ---------- questions drawer ---------- */
+  .drawer{
+    position:fixed;top:0;right:0;height:100%;width:420px;max-width:92vw;background:var(--surface);
+    border-left:1px solid var(--line);box-shadow:-14px 0 40px rgba(16,28,43,.13);
+    transform:translateX(100%);transition:transform .22s ease;z-index:50;display:flex;flex-direction:column;
+  }
+  .drawer.on{transform:translateX(0)}
+  .dhead{padding:20px 22px;border-bottom:1px solid var(--line)}
+  .dhead h2{font-family:var(--serif);font-size:19px;margin:0 0 5px;font-weight:600}
+  .dhead p{font-size:12.5px;color:var(--muted);margin:0}
+  .dbody{flex:1;overflow-y:auto;padding:16px 22px}
+  .qitem{border:1px solid var(--line);border-radius:9px;padding:13px 15px;margin-bottom:10px}
+  .qitem.flagged{border-color:var(--brick);background:var(--brick-bg)}
+  .qitem .qh{font-size:13.5px;font-weight:600;margin-bottom:5px;line-height:1.4}
+  .qitem .qd{font-size:12.5px;color:var(--muted);line-height:1.5}
+  .qitem .qtag{
+    font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+    color:var(--brick);font-weight:700;margin-top:8px;display:inline-block;
+  }
+  .dclose{position:absolute;top:18px;right:20px;font-size:22px;color:var(--muted);line-height:1}
+  .dfoot{padding:16px 22px;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+
+  .footnote{
+    background:var(--ink);color:#8FA0B3;font-size:11.5px;padding:14px 20px;text-align:center;
+    font-family:var(--mono);letter-spacing:.02em;
+  }
+
+  @media(max-width:1080px){
+    .shell{grid-template-columns:1fr;height:auto}
+    .rail,.mid{border-right:none;border-bottom:1px solid var(--line)}
+    .work{min-height:70vh}
+  }
+</style>
+</head>
+<body>
+
+<div class="harness">
+  <span class="tag">Prototype</span>
+  <span class="lbl">View this project as</span>
+  <div class="roleswitch" id="roles" role="group" aria-label="Role">
+    <button data-role="owner" aria-pressed="true">Owner</button>
+    <button data-role="editor" aria-pressed="false">Editor</button>
+    <button data-role="viewer" aria-pressed="false">Viewer</button>
+  </div>
+  <span class="spacer"></span>
+  <button class="ghostbtn" id="openQ">Open questions<span class="qcount" id="qcount">6</span></button>
+  <button class="ghostbtn" id="reset">Start over</button>
+</div>
+
+<div class="appbar">
+  <div class="mark"></div>
+  <div class="brand">Deal Workspace</div>
+  <div class="who"><span class="avatar">MR</span><span>m.reyes@thornburypartners.com</span></div>
+</div>
+
+<div class="shell">
+  <!-- projects rail -->
+  <aside class="rail">
+    <p class="eyebrow">Your projects</p>
+    <div id="projList"></div>
+    <button class="newproj" data-explain="newproject">+ Start a project</button>
+    <div class="divider"></div>
+    <p class="eyebrow">Not listed here</p>
+    <p style="font-size:12.5px;color:var(--muted);line-height:1.5;margin:0">
+      Projects you have not been added to do not appear, cannot be searched for, and cannot be opened by any link.
+    </p>
+  </aside>
+
+  <!-- documents + sessions -->
+  <section class="mid">
+    <p class="eyebrow" id="docHead">Documents</p>
+    <div id="docList"></div>
+    <button class="primary" id="addDocs">+ Add documents</button>
+    <div class="divider"></div>
+    <p class="eyebrow">Conversations in this project</p>
+    <div id="sessList"></div>
+    <button class="primary" id="newChat">+ Start a conversation</button>
+  </section>
+
+  <!-- working area -->
+  <section class="work">
+    <div class="whead">
+      <h1 id="wTitle">—</h1>
+      <span class="sub" id="wSub"></span>
+    </div>
+    <div class="scroll"><div class="thread" id="thread"></div></div>
+    <div class="composer"><div class="cinner" id="composer"></div></div>
+  </section>
+</div>
+
+<div class="footnote">
+  Prototype for requirements discussion — no live data, no backend, nothing is saved. Visual design is not part of the proof of concept.
+</div>
+
+<!-- explain modal -->
+<div class="scrim" id="scrim">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="mTitle">
+    <h3 id="mTitle">—</h3>
+    <p id="mBody"></p>
+    <div class="rule" id="mRule"></div>
+    <div class="mrow">
+      <button class="btn-quiet" id="mOk">That is correct</button>
+      <button class="btn-flag" id="mFlag">This needs changing</button>
+    </div>
+  </div>
+</div>
+
+<!-- questions drawer -->
+<aside class="drawer" id="drawer" aria-hidden="true">
+  <div class="dhead">
+    <button class="dclose" id="dClose" aria-label="Close">&times;</button>
+    <h2>Open questions</h2>
+    <p>Decisions still to make. Flag anything else you disagree with as you click around.</p>
+  </div>
+  <div class="dbody" id="qList"></div>
+  <div class="dfoot">Anything flagged here should be settled at Week&nbsp;1 sign-off, before build starts.</div>
+</aside>
+
+<script>
+"use strict";
+
+/* ---------------- data ---------------- */
+const PROJECTS = {
+  harborline: {
+    name:"Harborline RE Fund IV — LP interest", role:"owner",
+    docs:[
+      {n:"Harborline_IV_LPA_Executed.pdf"},
+      {n:"Capital_Account_Stmt_Q3_2025.pdf"},
+      {n:"Quarterly_Report_Q3_2025.pdf"},
+      {n:"Independent_Valuation_Sep2025.pdf"},
+      {n:"Transfer_Provisions_Memo.docx", processing:true}
+    ],
+    sessions:[
+      {id:"h1", t:"Pricing basis and discount", who:"Elena Vasquez", when:"3 hours ago", turns:[
+        {q:"What discount to NAV does the indicative bid represent?", who:"Elena Vasquez",
+         a:["Reported NAV for the interest as at 30 September 2025 is $42.6m <c>1</c>. The indicative bid of $34.1m represents a 20.0% discount to that figure <c>2</c>.",
+            "NAV is struck quarterly and has not been adjusted for the two asset disposals completed in October, so the reference figure is three months stale at the point of bidding <c>1</c>."],
+         s:["Capital_Account_Stmt_Q3_2025.pdf · p.2","Quarterly_Report_Q3_2025.pdf · p.7"]}
+      ]},
+      {id:"h2", t:"GP consent and ROFR mechanics", who:"Marcus Lindqvist", when:"yesterday", turns:[
+        {q:"What has to happen before the transfer can complete?", who:"Marcus Lindqvist",
+         a:["The transfer requires GP consent, which under the partnership agreement may not be unreasonably withheld <c>1</c>. Existing limited partners hold a right of first refusal, exercisable within 20 business days of the transfer notice <c>1</c>.",
+            "There is no transfer fee, but the buyer bears the GP's reasonable legal costs, capped at $25,000 <c>2</c>."],
+         s:["Harborline_IV_LPA_Executed.pdf · §11.4","Transfer_Provisions_Memo.docx · p.3"]}
+      ]}
+    ],
+    answers:[
+      {k:["discount","nav","price","pricing","bid","value"],
+       a:["Reported NAV for the interest as at 30 September 2025 is $42.6m <c>1</c>. The indicative bid of $34.1m represents a 20.0% discount to that figure <c>2</c>.",
+          "NAV is struck quarterly and has not been adjusted for the two disposals completed in October, so the reference figure is three months stale at the point of bidding <c>1</c>."],
+       s:["Capital_Account_Stmt_Q3_2025.pdf · p.2","Quarterly_Report_Q3_2025.pdf · p.7"]},
+      {k:["transfer","consent","rofr","restriction","assign","first refusal"],
+       a:["Transfers require GP consent, which may not be unreasonably withheld <c>1</c>. Existing limited partners hold a right of first refusal exercisable within 20 business days of the transfer notice <c>1</c>.",
+          "There is no transfer fee. The buyer bears the GP's reasonable legal costs, capped at $25,000 <c>2</c>."],
+       s:["Harborline_IV_LPA_Executed.pdf · §11.4","Transfer_Provisions_Memo.docx · p.3"]},
+      {k:["unfunded","commitment","drawdown","capital call","remaining"],
+       a:["Unfunded commitment stands at $8.2m, around 16% of total commitment <c>1</c>. The investment period runs to June 2027, so the balance may be called in full before then <c>2</c>."],
+       s:["Capital_Account_Stmt_Q3_2025.pdf · p.1","Harborline_IV_LPA_Executed.pdf · §4.2"]},
+      {k:["concentration","top asset","exposure","occupancy","portfolio"],
+       a:["The three largest assets account for 58% of NAV, and all three sit in the same metropolitan area <c>1</c>. Weighted average occupancy across the portfolio is 91% <c>2</c>.",
+          "The valuer flags the geographic concentration as the principal sensitivity in the appraisal <c>1</c>."],
+       s:["Independent_Valuation_Sep2025.pdf · p.14","Quarterly_Report_Q3_2025.pdf · p.9"]},
+      {k:["debt","leverage","ltv","maturity","refinanc","loan"],
+       a:["$61m of asset-level debt matures within 18 months, at a weighted average cost of 4.8% <c>1</c>. Portfolio loan-to-value stands at 46% on the September valuation <c>2</c>."],
+       s:["Quarterly_Report_Q3_2025.pdf · p.11","Independent_Valuation_Sep2025.pdf · p.4"]},
+      {k:["fee","carry","waterfall","promote","hurdle"],
+       a:["The fund charges 1.25% on invested capital after the investment period, with a 20% carried interest over an 8% preferred return, on a whole-of-fund basis <c>1</c>."],
+       s:["Harborline_IV_LPA_Executed.pdf · §7.1"]}
+    ],
+    chips:["What discount to NAV is the bid?","What are the transfer restrictions?","How much is unfunded?","How did the fund perform in 2019?"]
+  },
+  meridian: {
+    name:"Meridian Logistics II — continuation vehicle", role:"editor",
+    docs:[
+      {n:"Meridian_II_PPM.pdf"},
+      {n:"CV_Term_Sheet_Draft6.pdf"},
+      {n:"Rent_Roll_Consolidated.pdf"},
+      {n:"Debt_Schedule_2026.pdf"}
+    ],
+    sessions:[
+      {id:"m1", t:"Rollover economics for existing LPs", who:"Aisha Rahman", when:"2 days ago", turns:[
+        {q:"What are rolling LPs being offered relative to selling?", who:"Aisha Rahman",
+         a:["Rolling LPs may elect status quo terms or a reduced-fee alternative at 0.90% with a 15% carry over a 7% preferred return <c>1</c>. Selling LPs receive cash at the tender price with no crystallised carry at the transaction level <c>2</c>.",
+            "The GP is committing $12m of new capital alongside the continuation vehicle <c>1</c>."],
+         s:["CV_Term_Sheet_Draft6.pdf · p.5","CV_Term_Sheet_Draft6.pdf · p.9"]}
+      ]}
+    ],
+    answers:[
+      {k:["rollover","roll","continuation","cv","term","election"],
+       a:["Rolling LPs may elect status quo terms or a reduced-fee alternative at 0.90% with a 15% carry over a 7% preferred return <c>1</c>. Selling LPs receive cash at the tender price <c>2</c>."],
+       s:["CV_Term_Sheet_Draft6.pdf · p.5","CV_Term_Sheet_Draft6.pdf · p.9"]},
+      {k:["rent","tenant","wault","lease","occupancy","income"],
+       a:["Weighted average unexpired lease term is 6.2 years across the consolidated rent roll <c>1</c>. The single largest tenant contributes 14% of contracted income, with a break option in 2029 <c>1</c>."],
+       s:["Rent_Roll_Consolidated.pdf · p.2"]},
+      {k:["debt","refinanc","maturity","hedge","facility"],
+       a:["Two facilities totalling €88m mature in Q4 2026 <c>1</c>. Both are floating and hedged to 80% of drawn balance through to maturity <c>1</c>."],
+       s:["Debt_Schedule_2026.pdf · p.3"]}
+    ],
+    chips:["What are rolling LPs offered?","What is the WAULT?","When does the debt mature?"]
+  },
+  castlemere: {
+    name:"Castlemere Fund III — tail-end review", role:"viewer",
+    docs:[
+      {n:"Castlemere_III_Annual_Report_2025.pdf"},
+      {n:"Asset_Appraisals_Dec2025.pdf"},
+      {n:"LPAC_Minutes_Nov2025.pdf"}
+    ],
+    sessions:[
+      {id:"c1", t:"Wind-down timing and residual assets", who:"Tom Bridger", when:"5 days ago", turns:[
+        {q:"How long is the fund likely to run before final liquidation?", who:"Tom Bridger",
+         a:["The term has been extended twice and now expires in December 2026, with one further one-year extension available on LPAC approval <c>1</c>.",
+            "Four assets remain, carried at $71m in aggregate <c>2</c>. The minutes record the GP's intention to market three of them as a single portfolio during 2026 <c>1</c>."],
+         s:["LPAC_Minutes_Nov2025.pdf · p.2","Asset_Appraisals_Dec2025.pdf · p.1"]}
+      ]}
+    ],
+    answers:[],
+    chips:[]
+  }
+};
+
+const QUESTIONS = [
+  {id:"q1", h:"Can a viewer open the underlying document, or only see the reference?",
+   d:"Today a viewer sees the document name and section on a citation but cannot open or download the file. For an investment committee member reviewing the deal team's analysis, that may be too restrictive."},
+  {id:"q2", h:"Should viewers see every conversation on a deal?",
+   d:"All members currently read all sessions. The alternative is that viewers see only analysis the deal lead has chosen to circulate."},
+  {id:"q3", h:"Should analysts be able to add documents?",
+   d:"Adding documents is restricted to the deal lead. During live diligence, where material arrives from the intermediary throughout the day, that may create a bottleneck."},
+  {id:"q4", h:"Should conversations be private until shared?",
+   d:"Sessions are visible to the whole deal team. An analyst's early, half-formed question is attributable to them, which may discourage using the tool at all."},
+  {id:"q5", h:"What happens when a document is superseded?",
+   d:"Quarterly statements get restated and valuations get revised. An answer citing a superseded NAV is worse than no answer. Old citations could be left, marked as superseded, or withdrawn."},
+  {id:"q6", h:"Is a restriction needed beyond deal membership?",
+   d:"Where an information barrier applies, a person may sit on the deal team but still need to be walled from a particular workstream. Project membership alone cannot express that."},
+  {id:"q7", h:"Should the system record who read which analysis?",
+   d:"A read-level audit trail matters if the firm has to evidence how confidential information was handled under an NDA with the general partner."}
+];
+
+/* ---------------- state ---------------- */
+let cur = "harborline";
+let role = PROJECTS.harborline.role;
+let openSession = "h1";
+let draftTurns = null;
+let flagged = new Set();
+let pendingFlag = null;
+let extraDocs = [];
+let banner = null;
+
+const CAP = {
+  owner:  {upload:true,  invite:true,  chat:true,  openDoc:true},
+  editor: {upload:false, invite:false, chat:true,  openDoc:true},
+  viewer: {upload:false, invite:false, chat:false, openDoc:false}
+};
+
+const RULES = {
+  upload:{t:"Only owners add documents",
+    b:"You are viewing this project as an editor or viewer. Adding documents is restricted to project owners, so this control is unavailable.",
+    r:"The rule as specified: only owners may add documents to a project. Hiding the button is not the control — the server refuses the request even if it is made directly."},
+  chat:{t:"Viewers cannot start a conversation",
+    b:"A viewer reads conversations that colleagues have started, but does not begin their own or put questions to the assistant.",
+    r:"The rule as specified: owners and editors start conversations; viewers read them. This is the difference between the editor and viewer roles."},
+  openDoc:{t:"Viewers cannot open the original file",
+    b:"The citation names the document and page so the answer can be traced, but a viewer cannot open or download the file itself.",
+    r:"The rule as specified: viewers see citation references only. Note this stops a viewer taking the file away — it does not stop them reading quoted passages inside answers."},
+  newproject:{t:"Not built for this prototype",
+    b:"Creating a project works in the real application. It is stubbed here so the walkthrough stays on the parts that need your decisions.",
+    r:"Any member of the workspace may create a project and automatically becomes its owner."}
+};
+
+/* ---------------- helpers ---------------- */
+const $ = s => document.querySelector(s);
+const esc = s => s.replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const cites = s => s.replace(/<c>(\d+)<\/c>/g, '<span class="cite">[$1]</span>');
+
+/* ---------------- render ---------------- */
+function renderProjects(){
+  $("#projList").innerHTML = Object.entries(PROJECTS).map(([k,p])=>{
+    const r = k===cur ? role : p.role;
+    const n = p.docs.length + (k===cur ? extraDocs.length : 0);
+    return `<button class="proj" data-proj="${k}" aria-current="${k===cur}">
+      <div class="nm">${esc(p.name)}</div>
+      <div class="meta"><span class="badge ${r}">${r}</span><span class="cnt">${n} documents</span></div>
+    </button>`;
+  }).join("");
+}
+
+function renderMid(){
+  const p = PROJECTS[cur];
+  const docs = p.docs.concat(extraDocs);
+  $("#docHead").textContent = `Documents · ${docs.length}`;
+  $("#docList").innerHTML = docs.map(d=>
+    `<div class="doc ${d.processing?"proc":""}"><span class="dot"></span><span class="nm">${esc(d.n)}</span>${
+      d.processing?'<span class="st">Processing</span>':''}</div>`).join("");
+
+  const add = $("#addDocs");
+  if(CAP[role].upload){ add.removeAttribute("data-locked"); add.textContent="+ Add documents"; }
+  else { add.setAttribute("data-locked","1"); add.textContent="Adding documents is owner-only"; }
+
+  $("#sessList").innerHTML = p.sessions.map(s=>
+    `<button class="sess" data-sess="${s.id}" aria-current="${s.id===openSession&&!draftTurns}">
+      <div class="t">${esc(s.t)}</div><div class="w">${esc(s.who)} · ${esc(s.when)}</div>
+    </button>`).join("") || `<p style="font-size:12.5px;color:var(--muted);margin:0">No conversations yet.</p>`;
+
+  const nc = $("#newChat");
+  if(CAP[role].chat){ nc.removeAttribute("data-locked"); nc.textContent="+ Start a conversation"; }
+  else { nc.setAttribute("data-locked","1"); nc.textContent="Viewers cannot start one"; }
+}
+
+function renderWork(){
+  const p = PROJECTS[cur];
+  const docs = p.docs.length + extraDocs.length;
+  $("#wTitle").textContent = p.name;
+  $("#wSub").textContent = `Answers use only the ${docs} documents in this project`;
+
+  const t = $("#thread");
+  let html = "";
+  if(banner){
+    html += `<div class="banner"><span>&#9679;</span><div>${banner}</div></div>`;
+  }
+
+  const turns = draftTurns !== null ? draftTurns
+    : (p.sessions.find(s=>s.id===openSession)||{}).turns || [];
+
+  if(!turns.length){
+    html += `<div class="empty"><h2>${draftTurns!==null?"Ask your first question":"Nothing open"}</h2>
+      <p>${draftTurns!==null
+        ? "Answers will draw only on the documents in this project, and will cite the ones they used."
+        : "Choose a conversation on the left, or start one of your own."}</p></div>`;
+  } else {
+    turns.forEach(t2=>{
+      html += `<div class="qrow"><div class="q">${esc(t2.q)}</div></div>
+               <div class="qwho">${esc(t2.who||"You")}</div>`;
+      if(t2.none){
+        html += `<div class="a nogrounds agap"><p>${esc(t2.none)}</p></div>`;
+      } else {
+        html += `<div class="a agap"><div>${t2.a.map(x=>`<p>${cites(esc(x).replace(/&lt;c&gt;(\d+)&lt;\/c&gt;/g,"<c>$1</c>"))}</p>`).join("")}</div>
+          <div class="srcs">${t2.s.map((s,i)=>
+            `<button class="src" data-src="1" ${CAP[role].openDoc?"":'data-locked="1"'}>[${i+1}] ${esc(s)}</button>`).join("")}</div></div>`;
+      }
+    });
+  }
+  t.innerHTML = html;
+  t.parentElement.scrollTop = t.parentElement.scrollHeight;
+  renderComposer();
+}
+
+function renderComposer(){
+  const c = $("#composer");
+  if(!CAP[role].chat){
+    c.innerHTML = `<div class="lockmsg"><strong>Read only.</strong> As a viewer you can read what colleagues asked and what the assistant answered, but you cannot put questions to it yourself. Switch role above to compare.</div>`;
+    return;
+  }
+  const p = PROJECTS[cur];
+  c.innerHTML = `
+    <div class="chips">${(p.chips||[]).map(x=>`<button class="chip">${esc(x)}</button>`).join("")}</div>
+    <div class="cbox">
+      <input id="ask" placeholder="Ask a question about this deal's documents…" autocomplete="off">
+      <button class="send" id="sendBtn">Ask</button>
+    </div>`;
+}
+
+function renderQuestions(){
+  $("#qList").innerHTML = QUESTIONS.map(q=>
+    `<div class="qitem ${flagged.has(q.id)?"flagged":""}">
+      <div class="qh">${esc(q.h)}</div><div class="qd">${esc(q.d)}</div>
+      ${flagged.has(q.id)?'<span class="qtag">Flagged in session</span>':''}
+    </div>`).join("") +
+    [...flagged].filter(f=>!QUESTIONS.some(q=>q.id===f)).map(f=>
+      `<div class="qitem flagged"><div class="qh">${esc(RULES[f]?RULES[f].t:f)}</div>
+       <div class="qd">${esc(RULES[f]?RULES[f].r:"")}</div>
+       <span class="qtag">Flagged in session</span></div>`).join("");
+  $("#qcount").textContent = QUESTIONS.length + [...flagged].filter(f=>!QUESTIONS.some(q=>q.id===f)).length;
+}
+
+function renderAll(){ renderProjects(); renderMid(); renderWork(); renderQuestions(); }
+
+/* ---------------- behaviour ---------------- */
+function setRole(r, announce){
+  const was = role; role = r;
+  document.querySelectorAll("#roles button").forEach(b=>
+    b.setAttribute("aria-pressed", b.dataset.role===r));
+  if(announce && was!==r){
+    const notes = {
+      owner:"<b>Now viewing as owner.</b> You can add documents, invite colleagues and set their roles, and start conversations.",
+      editor:"<b>Now viewing as editor.</b> Adding documents is no longer available — that is owner-only. You can still ask questions and read every conversation.",
+      viewer:"<b>Now viewing as viewer.</b> You can read conversations colleagues have started, but you cannot ask questions, add documents, or open the original files."
+    };
+    banner = notes[r];
+  }
+  renderAll();
+}
+
+function openProject(k){
+  cur = k; role = PROJECTS[k].role; extraDocs = []; draftTurns = null;
+  openSession = (PROJECTS[k].sessions[0]||{}).id || null;
+  banner = `<b>${esc(PROJECTS[k].name)}.</b> Your role here is <b>${role}</b>, set by whoever owns this project. Use the switch above to see how it looks to the other roles.`;
+  setRole(role, false);
+}
+
+function answerFor(text){
+  const p = PROJECTS[cur], q = text.toLowerCase();
+  for(const a of (p.answers||[])) if(a.k.some(k=>q.includes(k))) return a;
+  return null;
+}
+
+function ask(text){
+  if(!text.trim() || !CAP[role].chat) return;
+  if(draftTurns === null) draftTurns = [];
+  banner = null;
+  const hit = answerFor(text);
+  if(hit) draftTurns.push({q:text, who:"You", a:hit.a, s:hit.s});
+  else draftTurns.push({q:text, who:"You",
+    none:"The documents in this project do not cover that. Nothing loaded here addresses it, so there is no grounded answer to give — rather than estimate a figure, the assistant says so. Estimating would be worse than useless in a pricing discussion."});
+  renderMid(); renderWork();
+}
+
+function explain(key){
+  const r = RULES[key]; if(!r) return;
+  pendingFlag = key;
+  $("#mTitle").textContent = r.t; $("#mBody").textContent = r.b; $("#mRule").textContent = r.r;
+  $("#scrim").classList.add("on"); $("#mOk").focus();
+}
+function closeModal(){ $("#scrim").classList.remove("on"); pendingFlag = null; }
+
+/* ---------------- events ---------------- */
+document.addEventListener("click", e=>{
+  const t = e.target;
+
+  const rb = t.closest("#roles button");
+  if(rb){ setRole(rb.dataset.role, true); return; }
+
+  const pj = t.closest("[data-proj]");
+  if(pj){ openProject(pj.dataset.proj); return; }
+
+  const ss = t.closest("[data-sess]");
+  if(ss){ openSession = ss.dataset.sess; draftTurns = null; banner = null; renderMid(); renderWork(); return; }
+
+  const ex = t.closest("[data-explain]");
+  if(ex){ explain(ex.dataset.explain); return; }
+
+  if(t.closest("#addDocs")){
+    if(!CAP[role].upload){ explain("upload"); return; }
+    const names = ["Side_Letter_Schedule.pdf","Asset_Level_Cashflows.pdf","GP_Consent_Correspondence.pdf"];
+    const d = {n:names[extraDocs.length % names.length], processing:true};
+    extraDocs.push(d); renderProjects(); renderMid();
+    setTimeout(()=>{ d.processing=false; renderMid(); renderWork(); }, 2200);
+    return;
+  }
+
+  if(t.closest("#newChat")){
+    if(!CAP[role].chat){ explain("chat"); return; }
+    draftTurns = []; openSession = null; banner = null; renderMid(); renderWork();
+    setTimeout(()=>{ const i=$("#ask"); if(i) i.focus(); }, 30);
+    return;
+  }
+
+  const src = t.closest("[data-src]");
+  if(src){ if(!CAP[role].openDoc) explain("openDoc"); return; }
+
+  const chip = t.closest(".chip");
+  if(chip){ ask(chip.textContent); return; }
+
+  if(t.closest("#sendBtn")){ const i=$("#ask"); ask(i.value); i.value=""; i.focus(); return; }
+
+  if(t.closest("#openQ")){ $("#drawer").classList.add("on"); $("#drawer").setAttribute("aria-hidden","false"); return; }
+  if(t.closest("#dClose")){ $("#drawer").classList.remove("on"); $("#drawer").setAttribute("aria-hidden","true"); return; }
+
+  if(t.closest("#mOk")){ closeModal(); return; }
+  if(t.closest("#mFlag")){
+    if(pendingFlag) flagged.add(pendingFlag);
+    closeModal(); renderQuestions();
+    $("#drawer").classList.add("on"); $("#drawer").setAttribute("aria-hidden","false");
+    return;
+  }
+  if(t.id === "scrim"){ closeModal(); return; }
+
+  if(t.closest("#reset")){
+    cur="harborline"; extraDocs=[]; draftTurns=null; flagged=new Set(); openSession="h1";
+    banner=null; setRole("owner", false);
+    $("#drawer").classList.remove("on"); $("#drawer").setAttribute("aria-hidden","true");
+    return;
+  }
+});
+
+document.addEventListener("keydown", e=>{
+  if(e.key==="Enter" && e.target.id==="ask"){ ask(e.target.value); e.target.value=""; }
+  if(e.key==="Escape"){ closeModal();
+    $("#drawer").classList.remove("on"); $("#drawer").setAttribute("aria-hidden","true"); }
+});
+
+/* ---------------- go ---------------- */
+banner = `<b>Start here.</b> You are an owner of this project. Ask something below, then switch your role at the top and watch what changes.`;
+renderAll();
+</script>
+</body>
+</html>

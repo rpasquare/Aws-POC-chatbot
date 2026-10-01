@@ -1,0 +1,22 @@
+# Python (backend)
+backend/.env
+backend/.venv/
+backend/**/__pycache__/
+*.pyc
+backend/.pytest_cache/
+backend/.hypothesis/
+backend/.uv/
+backend/uv.lock
+backend/deal_workspace.egg-info/
+
+# Node (frontend)
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+
+.kiro
+Pdf-To-Knowledge
