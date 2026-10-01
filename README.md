@@ -1,4 +1,4 @@
-# Deal Workspace
+# AWS POC Workspace
 
 Upload a PDF, ask questions about it, get answers with citations back to
 the exact page and passage.
