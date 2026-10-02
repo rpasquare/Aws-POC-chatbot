@@ -6,9 +6,10 @@ services:
       POSTGRES_PASSWORD: deal
       POSTGRES_DB: deal_workspace
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U deal -d deal_workspace"]
       interval: 5s
@@ -19,14 +20,15 @@ services:
     build: .
     image: deal-workspace:dev
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://deal:deal@db:5432/deal_workspace
-      AWS_REGION: ${AWS_REGION:-ap-southeast-2}
-      S3_BUCKET: ${S3_BUCKET:-deal-workspace-dev}
-      EXTRACTION_SERVICE_URL: ${EXTRACTION_SERVICE_URL:-http://host.docker.internal:8001}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8000:8000"
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
@@ -35,15 +37,25 @@ services:
     build: .
     image: deal-workspace:dev
     command: ["python", "-m", "app.worker"]
+    env_file:
+      - .env
     environment:
       DATABASE_URL: postgresql://deal:deal@db:5432/deal_workspace
-      AWS_REGION: ${AWS_REGION:-ap-southeast-2}
-      S3_BUCKET: ${S3_BUCKET:-deal-workspace-dev}
-      EXTRACTION_SERVICE_URL: ${EXTRACTION_SERVICE_URL:-http://host.docker.internal:8001}
-      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+
+  frontend:
+    build:
+      context: ../frontend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    depends_on:
+      - api
 
 volumes:
   db_data:

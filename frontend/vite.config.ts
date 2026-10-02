@@ -6,5 +6,10 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    proxy: {
+      "/api": "http://localhost:8000",
+      "/health": "http://localhost:8000",
+      "/ready": "http://localhost:8000",
+    },
   },
 });

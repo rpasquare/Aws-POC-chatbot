@@ -12,6 +12,7 @@ dependencies = [
     "boto3==1.35.87",
     "httpx==0.28.1",
     "pypdfium2==5.13.0",
+    "pillow==11.1.0",
 ]
 
 [project.optional-dependencies]
