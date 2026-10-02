@@ -25,6 +25,49 @@ Five things, in this order:
 If step 2 isn't running, document uploads will get stuck at the parsing
 stage — the worker will fail trying to reach the extraction service.
 
+## Manual deploy from Session Manager
+
+Use these commands while the GitHub account has no Actions minutes left.
+Connect with EC2 → the instance → **Connect** → **Session Manager**, then
+paste them. Do not use **Run workflow** until the billing cycle resets.
+Pdf-To-Knowledge must already be running on this instance at port `8001`.
+
+Update an instance that already has `/opt/aws-poc-chatbot`:
+
+```bash
+cd /opt/aws-poc-chatbot
+sudo git fetch origin
+sudo git checkout main
+sudo git pull --ff-only origin main
+sudo docker compose -f backend/docker-compose.yml up -d --build
+sudo docker compose -f backend/docker-compose.yml exec -T api python -m app.migrate seed
+curl -sf http://127.0.0.1:8080/health
+```
+
+`{"status":"ok"}` means the site and API are up. Port `8001` belongs to
+Pdf-To-Knowledge and is left alone.
+
+First time on the shared dev instance. The SSH key on the instance is the
+`karthikeyanr-mps` account key, so it can clone this repo and
+Pdf-To-Knowledge. Replace the bucket name with a real bucket in
+`us-east-1` before running the compose command.
+
+```bash
+sudo git clone git@github.com:rpasquare/Aws-POC-chatbot.git /opt/aws-poc-chatbot
+sudo tee /opt/aws-poc-chatbot/backend/.env >/dev/null <<'EOF'
+AWS_REGION=us-east-1
+S3_BUCKET=REPLACE_WITH_YOUR_BUCKET
+EXTRACTION_SERVICE_URL=http://host.docker.internal:8001
+EOF
+cd /opt/aws-poc-chatbot
+sudo docker compose -f backend/docker-compose.yml up -d --build
+sudo docker compose -f backend/docker-compose.yml exec -T api python -m app.migrate seed
+curl -sf http://127.0.0.1:8080/health
+```
+
+Open security-group inbound TCP `8080` from the networks that should load
+the site. Leave `8000`, `5432`, and `5433` closed.
+
 ## 1. Start Postgres
 
 ```bash
@@ -149,10 +192,10 @@ workflow**. That workflow runs only when you start it.
 5. Open security-group inbound **TCP 8080** from Anywhere-IPv4. The site
    and the API are both served there. Port `8000` can stay closed.
 6. On the instance role `pdf-to-knowledge-ec2`, allow
-   `s3:GetObject`, `s3:PutObject`, and `s3:HeadObject` on the bucket, plus
-   `bedrock:InvokeModel` in `us-east-1`. Create the S3 bucket in
-   `us-east-1` and enable the Titan embed model and Claude 3.5 Sonnet in
-   Amazon Bedrock. Uploads and answers need those. `/health` does not.
+   `s3:GetObject`, `s3:PutObject`, and `s3:HeadObject` on the bucket.
+   Create that bucket in `us-east-1` and add a CORS rule that allows
+   `PUT`, `GET`, and `HEAD` from `http://PUBLIC_IP:8080`. Uploads need
+   those. `/health` does not.
 7. In this GitHub repository, add the same three Actions variables used by
    Pdf-To-Knowledge: `AWS_REGION`, `AWS_ROLE_ARN`, and `EC2_INSTANCE_ID`.
    The existing GitHub role can send the deploy command to this instance.
