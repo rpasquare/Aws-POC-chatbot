@@ -4,7 +4,7 @@
  * lands (Sprint 4). The dev user and project ids match the seed data.
  */
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 export const DEV_USER_ID = "00000000-0000-0000-0000-000000000001";
 export const DEV_PROJECT_ID = "00000000-0000-0000-0000-0000000000a1";
 

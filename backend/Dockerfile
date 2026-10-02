@@ -9,8 +9,9 @@ WORKDIR /srv
 # Dependency layer first so application edits do not invalidate it.
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir "fastapi==0.115.6" "uvicorn[standard]==0.34.0" \
-    "pydantic==2.10.4" "pydantic-settings==2.7.0" \
-    "psycopg[binary,pool]==3.2.3" "boto3==1.35.87"
+    "pydantic==2.10.4" "pydantic-settings==2.14.0" \
+    "psycopg[binary,pool]==3.2.3" "boto3==1.35.87" \
+    "httpx==0.28.1" "pypdfium2==5.13.0" "pillow==11.1.0"
 
 COPY app ./app
 COPY migrations ./migrations

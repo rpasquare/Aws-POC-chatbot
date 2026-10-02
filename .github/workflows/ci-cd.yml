@@ -1,0 +1,103 @@
+name: CI/CD
+
+# Manual only. This workflow does not run on push or pull request,
+# so it does not consume GitHub Actions minutes until someone starts it.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to run
+        type: choice
+        options:
+          - test
+          - deploy
+          - test-and-deploy
+        default: test
+
+jobs:
+  test:
+    if: inputs.action != 'deploy'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        working-directory: backend
+        run: pip install -e ".[dev]"
+
+      - name: Test
+        working-directory: backend
+        env:
+          DATABASE_URL: postgresql://deal:deal@localhost:5432/deal_workspace_test
+          AWS_REGION: us-east-1
+          S3_BUCKET: deal-workspace-dev
+          EXTRACTION_SERVICE_URL: http://localhost:8001
+        run: pytest
+
+  deploy:
+    if: >-
+      always() &&
+      (inputs.action == 'deploy' || inputs.action == 'test-and-deploy') &&
+      (needs.test.result == 'success' || needs.test.result == 'skipped')
+    needs: [test]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      AWS_ROLE_ARN: ${{ vars.AWS_ROLE_ARN }}
+      EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check repository variables
+        run: |
+          missing=0
+          for name in AWS_REGION AWS_ROLE_ARN EC2_INSTANCE_ID; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing GitHub Actions variable: ${name}"
+              missing=1
+            fi
+          done
+          exit "$missing"
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Deploy on the shared EC2 instance
+        run: |
+          params=$(jq -n --arg sha "$GITHUB_SHA" '{
+            commands: [
+              "set -euo pipefail",
+              "cd /opt/aws-poc-chatbot",
+              ("git fetch origin " + $sha),
+              ("git checkout --detach " + $sha),
+              "chmod +x deploy/ec2-remote.sh",
+              "./deploy/ec2-remote.sh"
+            ]
+          }')
+          command_id=$(aws ssm send-command \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "aws-poc-chatbot ${GITHUB_SHA}" \
+            --parameters "$params" \
+            --query Command.CommandId \
+            --output text)
+          echo "SSM command ${command_id}"
+          aws ssm wait command-executed \
+            --command-id "$command_id" \
+            --instance-id "$EC2_INSTANCE_ID"
+          aws ssm get-command-invocation \
+            --command-id "$command_id" \
+            --instance-id "$EC2_INSTANCE_ID" \
+            --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
+            --output json
