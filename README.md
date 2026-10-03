@@ -57,6 +57,14 @@ Copy `.env.example` to `.env` and fill in real values — at minimum
 `DATABASE_URL`, `AWS_REGION`, `S3_BUCKET`, and `EXTRACTION_SERVICE_URL`
 (defaults to `http://localhost:8001`, matching step 2 above).
 
+You also need real AWS credentials in your shell, separate from `.env`:
+uploads go straight to S3 via presigned URLs, which the backend signs
+using whatever credentials boto3 finds in its normal resolution order. If
+you use an AWS SSO profile, that means `export AWS_PROFILE=your-profile`
+(and `aws sso login --profile your-profile` first) before starting the API
+and worker — `.env` cannot set this, since it's read by boto3 directly
+from the shell environment, not by this app's own config.
+
 Run migrations:
 ```bash
 python -m app.migrate up
