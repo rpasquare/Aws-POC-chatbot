@@ -34,6 +34,16 @@ docker compose up -d db
 
 This starts a `pgvector`-enabled Postgres on `localhost:5432`.
 
+## 1a. Start Mailpit (only needed for the project-invites feature)
+
+```bash
+cd backend
+docker compose up -d mailpit
+```
+
+Catches invite emails locally instead of sending them for real. View them at
+`http://localhost:8025`. Not needed if you aren't working on invites.
+
 ## 2. Start Pdf-To-Knowledge
 
 Clone it separately, and follow its own README to get its API (port 8001)

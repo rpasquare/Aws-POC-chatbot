@@ -1,4 +1,10 @@
 services:
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "1025:1025"  # SMTP, matches SMTP_PORT default
+      - "8025:8025"  # web UI, open in a browser to see caught invite emails
+
   db:
     image: pgvector/pgvector:pg17
     environment:
@@ -24,6 +30,9 @@ services:
       AWS_REGION: ${AWS_REGION:-ap-southeast-2}
       S3_BUCKET: ${S3_BUCKET:-deal-workspace-dev}
       EXTRACTION_SERVICE_URL: ${EXTRACTION_SERVICE_URL:-http://host.docker.internal:8001}
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-smtp}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
     ports:
       - "8000:8000"

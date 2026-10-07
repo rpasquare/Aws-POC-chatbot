@@ -1,0 +1,72 @@
+.members {
+  max-width: 420px;
+}
+
+/* Requirement 12.1, 12.2: visible, specific project context for this view
+   -- same soft pill treatment as the sidebar's .role-chip, so it reads as
+   an established pattern rather than a new ad hoc style. */
+.project-scope {
+  display: inline-block;
+  font-size: 12px;
+  color: var(--ink-soft);
+  background: var(--line-soft);
+  border-radius: 999px;
+  padding: 5px 12px;
+  margin: 0 0 18px;
+}
+.project-scope strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.invite-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.invite-form input,
+.invite-form select {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 9px 10px;
+  font-size: 13px;
+  background: var(--surface);
+}
+.invite-form .primary {
+  margin-top: 2px;
+}
+
+.invite-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.invite-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 7px;
+  background: var(--line-soft);
+}
+.invite-email {
+  font-size: 13px;
+  font-weight: 600;
+}
+.invite-meta {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.cancel {
+  font-size: 12px;
+  color: var(--brick);
+  background: transparent;
+  padding: 6px 10px;
+  border-radius: 6px;
+  flex: none;
+}
+.cancel:hover {
+  background: var(--brick-bg);
+}

@@ -71,6 +71,54 @@ class Settings(BaseSettings):
     rrf_k: int = Field(default=60, gt=0)
     relevance_threshold: float = 0.02
 
+    # --- auth (project-invites feature) -----------------------------------
+    session_expiry_seconds: int = Field(default=60 * 60 * 24 * 30, gt=0)
+    """How long a session issued at invite acceptance remains valid. Default
+    30 days; this is a real credential, separate from the X-User-Id
+    placeholder the rest of the application still uses."""
+
+    session_cookie_secure: bool = True
+    """Whether the session cookie requires HTTPS. Set to false only for
+    local development over plain http://localhost; must be true wherever
+    the app is reachable over the network."""
+
+    csrf_cookie_name: str = "csrf_token"
+    """Name of the double-submit CSRF cookie set alongside the session
+    cookie (Requirement 15.6). Unlike the session cookie this one is not
+    HttpOnly, since the frontend must read it to echo it back as a
+    header; its security comes from same-origin policy, not secrecy."""
+
+    sign_in_rate_limit_max_attempts: int = Field(default=5, gt=0)
+    """Failed sign-in attempts allowed per email before Requirement 1.4/15.4's
+    rate limit rejects further attempts with 429. Five is generous enough
+    for a real user who mistypes a password a couple of times, while still
+    bounding an offline-style guessing campaign against one address."""
+
+    sign_in_rate_limit_window_seconds: int = Field(default=15 * 60, gt=0)
+    """Window the attempt count above is measured over. Default 15 minutes:
+    long enough that the limit meaningfully slows guessing, short enough
+    that a genuine user who got locked out is not stuck for long."""
+
+    email_backend: str = "smtp"
+    """'ses' for production, 'smtp' (pointed at Mailpit) for local
+    development. Switching environments is this one value, not a code
+    change."""
+
+    email_from_address: str = "invites@deal-workspace.local"
+    smtp_host: str = "localhost"
+    smtp_port: int = Field(default=1025, gt=0)
+    """Mailpit's default SMTP port locally."""
+
+    frontend_base_url: str = "http://localhost:5174"
+    """Used to build the accept-invite link included in the email."""
+
+    @field_validator("email_backend")
+    @classmethod
+    def _email_backend_is_known(cls, value: str) -> str:
+        if value not in ("ses", "smtp"):
+            raise ValueError(f"email_backend must be 'ses' or 'smtp', got {value!r}")
+        return value
+
     # --- runtime ----------------------------------------------------------
     db_pool_min_size: int = Field(default=1, ge=1)
     db_pool_max_size: int = Field(default=10, ge=1)
