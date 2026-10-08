@@ -66,7 +66,7 @@ class Settings(BaseSettings):
     # --- retrieval and models --------------------------------------------
     embed_model: str = "amazon.titan-embed-text-v2:0"
     embed_dimensions: int = Field(default=512, gt=0)
-    answer_model: str = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    answer_model: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     retrieval_top_k: int = Field(default=8, gt=0)
     rrf_k: int = Field(default=60, gt=0)
     relevance_threshold: float = 0.02

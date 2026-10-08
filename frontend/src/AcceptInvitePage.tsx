@@ -1,5 +1,8 @@
 import { useState } from "react";
 import { acceptInvite } from "./lib/api";
+// Requirement 13.5: see SignInPage.tsx -- explicit import of the shared
+// primitives this page's "needs-password" form and error states rely on.
+import "./App.css";
 import "./AcceptInvitePage.css";
 
 /** The accept-invite page: reachable without being signed in, since the
@@ -15,6 +18,12 @@ export function AcceptInvitePage() {
   const [state, setState] = useState<"idle" | "submitting" | "invalid" | "needs-password" | "done">(
     "idle",
   );
+  // Separate from `state`, which flips to "submitting" transiently: once
+  // the backend has told us this is a first-time recipient (422), the
+  // password form must stay showing through subsequent submit attempts
+  // rather than being replaced by the generic "Checking your invite…"
+  // branch while `state === "submitting"`.
+  const [needsPassword, setNeedsPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   if (!token) {
@@ -40,9 +49,10 @@ export function AcceptInvitePage() {
         setState("invalid");
       } else if (status === 422) {
         // First-time recipient: the backend requires a password.
+        setNeedsPassword(true);
         setState("needs-password");
       } else {
-        setState("idle");
+        setState(needsPassword ? "needs-password" : "idle");
         setError(message);
       }
     }
@@ -67,7 +77,10 @@ export function AcceptInvitePage() {
     );
   }
 
-  if (state === "needs-password") {
+  if (needsPassword) {
+    // Requirement 13.3: the button must show a loading label and become
+    // disabled while `submit(password)` is in flight.
+    const submitting = state === "submitting";
     return (
       <div className="accept-invite">
         <p className="accept-title">Set a password to finish joining</p>
@@ -84,9 +97,10 @@ export function AcceptInvitePage() {
             onChange={(e) => setPassword(e.target.value)}
             required
             minLength={8}
+            disabled={submitting}
           />
-          <button type="submit" className="primary">
-            Join project
+          <button type="submit" className="primary" disabled={submitting}>
+            {submitting ? "Joining…" : "Join project"}
           </button>
         </form>
         {error && <p className="error-hint">{error}</p>}

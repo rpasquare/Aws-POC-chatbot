@@ -8,23 +8,35 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from contextlib import asynccontextmanager
 from typing import Annotated
 
 from botocore.exceptions import ClientError
 from fastapi import Cookie, FastAPI, Header, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app import db, s3
+from app.answer_model import StreamingAnswerError, stream_answer
+from app.answering import REFUSAL_TEXT, record_refusal_message, should_refuse
 from app.auth import InvalidCredentialsError, TooManyAttemptsError, sign_in, sign_out
 from app.authz import NotAMemberError, require_role, role_on_project
+from app.citations import record_citations
 from app.config import get_settings
+from app.conversations import (
+    Conversation,
+    ConversationNotFoundError,
+    create_conversation,
+    list_conversations,
+    list_messages,
+)
 from app.csrf import CSRFMiddleware, generate_csrf_token, set_csrf_cookie
 from app.invite_acceptance import InviteNotValidError, PasswordRequiredError, accept_invite
 from app.invites import InviteRejectedError, cancel_invite, list_pending_invites, send_invite
+from app.prompting import assemble_prompt
+from app.retrieval import retrieve
 from app.session_auth import SESSION_COOKIE_NAME, ResolvedCallerId
 from app.uploads import (
     UploadRejectedError,
@@ -433,3 +445,241 @@ def get_extracted_text(document_id: str) -> dict:
         log.exception("S3 error reading parsed output key=%s", key)
         raise HTTPException(status_code=503, detail="could not read parsed output; try again shortly") from exc
     return json.loads(payload)
+
+
+class ConversationResponse(BaseModel):
+    id: str
+    project_id: str
+    title: str
+    created_by: str
+    created_at: str
+    last_active: str
+
+    @classmethod
+    def from_conversation(cls, conversation: Conversation) -> "ConversationResponse":
+        return cls(
+            id=conversation.id,
+            project_id=conversation.project_id,
+            title=conversation.title,
+            created_by=conversation.created_by,
+            created_at=conversation.created_at.isoformat(),
+            last_active=conversation.last_active.isoformat(),
+        )
+
+
+class CreateConversationRequest(BaseModel):
+    title: str | None = None
+
+
+@app.post("/api/projects/{project_id}/conversations")
+def create_project_conversation(
+    project_id: str,
+    body: CreateConversationRequest,
+    caller_id: str = ResolvedCallerId,
+) -> ConversationResponse:
+    """Start a new conversation. Admin or editor only; a viewer is a
+    member but lacks this specific capability, so denial is 403, not 404
+    (design doc error table: "Viewer attempts to start a conversation" ->
+    403). A caller who holds no role at all on the project gets 404
+    instead, per Requirement 2.2. Requirements 9.1, 9.2.
+    """
+    with db.connection() as conn:
+        try:
+            conversation = create_conversation(
+                conn, user_id=caller_id, project_id=project_id, title=body.title
+            )
+        except NotAMemberError as exc:
+            role = role_on_project(conn, caller_id, project_id)
+            if role is None:
+                raise HTTPException(status_code=404, detail=NOT_FOUND) from exc
+            raise HTTPException(status_code=403, detail="viewers cannot start a conversation") from exc
+    return ConversationResponse.from_conversation(conversation)
+
+
+@app.get("/api/projects/{project_id}/conversations")
+def get_project_conversations(
+    project_id: str,
+    caller_id: str = ResolvedCallerId,
+) -> list[ConversationResponse]:
+    """List a project's conversations, most recently active first. Any
+    member (admin, editor or viewer) may read. Requirements 9.3, 9.4.
+    """
+    with db.connection() as conn:
+        try:
+            conversations = list_conversations(conn, user_id=caller_id, project_id=project_id)
+        except NotAMemberError:
+            raise HTTPException(status_code=404, detail=NOT_FOUND) from None
+    return [ConversationResponse.from_conversation(c) for c in conversations]
+
+
+class CitationResponse(BaseModel):
+    marker: int
+    chunk_id: str | None
+    document_id: str | None
+    available: bool
+
+
+class MessageResponse(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    text: str
+    author_id: str | None
+    grounded: bool
+    created_at: str
+    citations: list[CitationResponse]
+
+
+def _message_response(message) -> MessageResponse:
+    return MessageResponse(
+        id=message.id,
+        session_id=message.session_id,
+        role=message.role,
+        text=message.text,
+        author_id=message.author_id,
+        grounded=message.grounded,
+        created_at=message.created_at.isoformat(),
+        citations=[CitationResponse(**c) for c in message.citations],
+    )
+
+
+@app.get("/api/conversations/{conversation_id}/messages")
+def get_conversation_messages(
+    conversation_id: str,
+    caller_id: str = ResolvedCallerId,
+) -> list[MessageResponse]:
+    """List a conversation's messages in order, with citations attached.
+    Any member of the conversation's project may read. Requirement 9.5.
+    """
+    with db.connection() as conn:
+        try:
+            messages = list_messages(conn, user_id=caller_id, conversation_id=conversation_id)
+        except (ConversationNotFoundError, NotAMemberError):
+            raise HTTPException(status_code=404, detail=NOT_FOUND) from None
+    return [_message_response(m) for m in messages]
+
+
+class AskQuestionRequest(BaseModel):
+    question: str
+
+
+def _require_project_id_for_conversation(conn, conversation_id: str) -> str:
+    row = conn.execute(
+        "select project_id from chat_sessions where id = %s", (conversation_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail=NOT_FOUND)
+    return str(row["project_id"])
+
+
+@app.post("/api/conversations/{conversation_id}/messages")
+def ask_question(
+    conversation_id: str,
+    body: AskQuestionRequest,
+    caller_id: str = ResolvedCallerId,
+) -> Response:
+    """Ask a question in a conversation. Admin or editor only, same
+    gating as starting a conversation (Requirement 9.2's capability
+    matrix applies to asking questions too).
+
+    Records the question, retrieves candidate passages, and either
+    returns the fixed refusal response (Requirement 7.3/7.4, not
+    streamed, since there is nothing progressive about a fixed string)
+    or streams the grounded answer as it is generated (Requirement 7.5),
+    recording the assistant message and its citations once the stream
+    completes.
+    """
+    with db.connection() as conn:
+        project_id = _require_project_id_for_conversation(conn, conversation_id)
+        try:
+            require_role(conn, caller_id, project_id, "admin", "editor")
+        except NotAMemberError as exc:
+            role = role_on_project(conn, caller_id, project_id)
+            if role is None:
+                raise HTTPException(status_code=404, detail=NOT_FOUND) from exc
+            raise HTTPException(status_code=403, detail="viewers cannot ask questions") from exc
+
+        conn.execute(
+            "insert into chat_messages (session_id, role, text, author_id, grounded) "
+            "values (%s, 'user', %s, %s, true)",
+            (conversation_id, body.question, caller_id),
+        )
+        conn.execute(
+            "update chat_sessions set last_active = now() where id = %s",
+            (conversation_id,),
+        )
+
+        chunks = retrieve(conn, project_id=project_id, query_text=body.question)
+
+        if should_refuse(chunks):
+            message_id = record_refusal_message(conn, session_id=conversation_id)
+            return JSONResponse(
+                content={
+                    "message_id": message_id,
+                    "role": "assistant",
+                    "text": REFUSAL_TEXT,
+                    "grounded": False,
+                    "citations": [],
+                }
+            )
+
+        assembly = assemble_prompt(chunks, body.question)
+
+    # Streaming happens outside the request's connection/transaction: the
+    # Bedrock call can take several seconds, and holding a pooled Postgres
+    # connection open for the duration of a slow external call would starve
+    # the pool. A fresh connection is opened after the stream completes to
+    # record the assistant message and its citations.
+    def collect_and_record(fragments: Iterator[str]) -> Iterator[str]:
+        full_text_parts: list[str] = []
+        for fragment in fragments:
+            full_text_parts.append(fragment)
+            yield fragment
+
+        full_text = "".join(full_text_parts)
+        with db.connection() as write_conn:
+            row = write_conn.execute(
+                "insert into chat_messages (session_id, role, text, author_id, grounded) "
+                "values (%s, 'assistant', %s, null, true) "
+                "returning id",
+                (conversation_id, full_text),
+            ).fetchone()
+            message_id = str(row["id"])
+            record_citations(
+                write_conn,
+                message_id=message_id,
+                answer_text=full_text,
+                slot_map=assembly.slot_map,
+                chunks=chunks,
+            )
+
+    # `stream_answer` is a generator: nothing runs until the first
+    # `next()`. Pulling the first fragment here, before constructing the
+    # `StreamingResponse`, means a `StreamingAnswerError` raised before
+    # any text was produced still surfaces as a clean 503 (Requirement
+    # 7's error table) rather than a broken 200 stream. A failure after
+    # the first fragment has already been sent cannot change the status
+    # code any more -- that is an inherent limit of HTTP streaming, not
+    # something this handler can work around -- so it is left to
+    # propagate and end the response early.
+    fragments = stream_answer(assembly.prompt)
+    try:
+        first_fragment = next(fragments)
+    except StopIteration:
+        first_fragment = None
+    except StreamingAnswerError as exc:
+        raise HTTPException(
+            status_code=503, detail="the answer model is temporarily unavailable; try again shortly"
+        ) from exc
+
+    def _prepend(first: str, rest: Iterator[str]) -> Iterator[str]:
+        yield first
+        yield from rest
+
+    def generate() -> Iterator[str]:
+        if first_fragment is not None:
+            yield from collect_and_record(_prepend(first_fragment, fragments))
+        else:
+            yield from collect_and_record(fragments)
+
+    return StreamingResponse(generate(), media_type="text/plain")

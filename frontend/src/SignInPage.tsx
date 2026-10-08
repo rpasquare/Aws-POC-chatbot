@@ -1,5 +1,10 @@
 import { useState } from "react";
 import { signIn } from "./lib/api";
+// Requirement 13.5: pulls in the shared .primary/.error-hint primitives
+// (App.css) explicitly, rather than relying on them merely being
+// reachable through main.tsx's bundle graph -- this page must look like
+// the rest of the app on its own terms.
+import "./App.css";
 import "./SignInPage.css";
 
 /** The sign-in page: reachable without being signed in. No router

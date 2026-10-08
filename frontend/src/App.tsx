@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { ChatPanel } from "./components/ChatPanel";
+import { ConversationList } from "./components/ConversationList";
 import { DocumentList } from "./components/DocumentList";
 import { ExtractedTextPanel } from "./components/ExtractedTextPanel";
 import { MemberManagement } from "./components/MemberManagement";
@@ -13,7 +15,8 @@ const PROJECT_NAME = "Development Project";
 
 export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [view, setView] = useState<"documents" | "members">("documents");
+  const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
+  const [view, setView] = useState<"documents" | "chat" | "members">("documents");
   const [myRole, setMyRole] = useState<string | null>(null);
   const [myEmail, setMyEmail] = useState<string | null>(null);
 
@@ -97,6 +100,12 @@ export default function App() {
           <button className="proj" aria-current={view === "documents"} onClick={() => setView("documents")}>
             <div className="nm">Documents</div>
           </button>
+          {/* Requirement 9.2/9.3: visible to every role -- admin, editor
+              and viewer can all read conversations, only creating one or
+              asking a question is restricted (gated inside the view). */}
+          <button className="proj" aria-current={view === "chat"} onClick={() => setView("chat")}>
+            <div className="nm">Ask questions</div>
+          </button>
           {/* Requirement 3.5, 12.3: this nav entry itself must not be in
               the DOM for editors/viewers, not merely disabled. */}
           {myRole === "admin" && (
@@ -106,7 +115,39 @@ export default function App() {
           )}
         </aside>
 
-        {view === "documents" || myRole !== "admin" ? (
+        {view === "members" && myRole === "admin" ? (
+          <section className="work" style={{ gridColumn: "span 2" }}>
+            <p className="eyebrow">Project invites</p>
+            <h2 style={{ fontFamily: "var(--serif)", marginTop: 0 }}>Invite your team</h2>
+            <p style={{ color: "var(--muted)", maxWidth: 480, marginBottom: 24 }}>
+              Invite someone by email and choose whether they can edit or only view.
+            </p>
+            <MemberManagement projectName={PROJECT_NAME} />
+          </section>
+        ) : view === "chat" ? (
+          <>
+            <section className="mid">
+              <ConversationList
+                selectedId={selectedConversationId}
+                onSelect={setSelectedConversationId}
+                canCreate={myRole === "admin" || myRole === "editor"}
+              />
+            </section>
+
+            <section className="work">
+              <p className="eyebrow">Sprint 2 demo</p>
+              <h2 style={{ fontFamily: "var(--serif)", marginTop: 0 }}>Ask questions, get cited answers</h2>
+              <p style={{ color: "var(--muted)", maxWidth: 480, marginBottom: 24 }}>
+                Pick a conversation on the left, or start a new one, and ask about the uploaded
+                documents.
+              </p>
+              <ChatPanel
+                conversationId={selectedConversationId}
+                canAsk={myRole === "admin" || myRole === "editor"}
+              />
+            </section>
+          </>
+        ) : (
           <>
             <section className="mid">
               <DocumentList selectedId={selectedId} onSelect={setSelectedId} canUpload={myRole === "admin"} />
@@ -122,15 +163,6 @@ export default function App() {
               <ExtractedTextPanel documentId={selectedId} />
             </section>
           </>
-        ) : (
-          <section className="work" style={{ gridColumn: "span 2" }}>
-            <p className="eyebrow">Project invites</p>
-            <h2 style={{ fontFamily: "var(--serif)", marginTop: 0 }}>Invite your team</h2>
-            <p style={{ color: "var(--muted)", maxWidth: 480, marginBottom: 24 }}>
-              Invite someone by email and choose whether they can edit or only view.
-            </p>
-            <MemberManagement projectName={PROJECT_NAME} />
-          </section>
         )}
       </div>
     </div>

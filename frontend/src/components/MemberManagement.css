@@ -67,6 +67,15 @@
   border-radius: 6px;
   flex: none;
 }
-.cancel:hover {
+.cancel:hover:not(:disabled) {
   background: var(--brick-bg);
+}
+.cancel:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.invite-form input:disabled,
+.invite-form select:disabled {
+  opacity: 0.6;
 }

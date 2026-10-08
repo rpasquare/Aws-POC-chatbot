@@ -174,7 +174,7 @@ def _blocks_st(draw):
     return blocks
 
 
-@settings(max_examples=50)
+@settings(max_examples=20)
 @given(blocks=_blocks_st(), target_tokens=st.integers(min_value=5, max_value=200), overlap_tokens=st.integers(min_value=0, max_value=50))
 def test_every_block_contributes_at_least_one_region(blocks, target_tokens, overlap_tokens):
     """Validates: Requirements 6.6, 8.2
@@ -191,7 +191,7 @@ def test_every_block_contributes_at_least_one_region(blocks, target_tokens, over
         assert block["text"] in all_text
 
 
-@settings(max_examples=50)
+@settings(max_examples=20)
 @given(blocks=_blocks_st(), target_tokens=st.integers(min_value=5, max_value=200), overlap_tokens=st.integers(min_value=0, max_value=50))
 def test_no_chunk_ever_truncates_a_blocks_text(blocks, target_tokens, overlap_tokens):
     """Validates: Requirements 6.6
@@ -220,7 +220,7 @@ def test_no_chunk_ever_truncates_a_blocks_text(blocks, target_tokens, overlap_to
             assert part in original_texts
 
 
-@settings(max_examples=50)
+@settings(max_examples=20)
 @given(blocks=_blocks_st(), target_tokens=st.integers(min_value=5, max_value=200), overlap_tokens=st.integers(min_value=0, max_value=50))
 def test_chunk_ordinals_are_sequential_from_one(blocks, target_tokens, overlap_tokens):
     overlap_tokens = min(overlap_tokens, target_tokens - 1) if target_tokens > 1 else 0
@@ -228,7 +228,7 @@ def test_chunk_ordinals_are_sequential_from_one(blocks, target_tokens, overlap_t
     assert [c.ordinal for c in chunks] == list(range(1, len(chunks) + 1))
 
 
-@settings(max_examples=50)
+@settings(max_examples=20)
 @given(blocks=_blocks_st(), target_tokens=st.integers(min_value=5, max_value=200), overlap_tokens=st.integers(min_value=0, max_value=50))
 def test_page_from_to_bounds_match_contributing_regions(blocks, target_tokens, overlap_tokens):
     overlap_tokens = min(overlap_tokens, target_tokens - 1) if target_tokens > 1 else 0

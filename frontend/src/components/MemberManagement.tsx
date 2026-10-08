@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { type PendingInvite, cancelInvite, listPendingInvites, sendInvite } from "../lib/api";
+// Explicit import of the shared .primary/.error-hint/.empty-hint
+// primitives this component relies on (Requirement 13.1).
+import "../App.css";
 import "./MemberManagement.css";
 
 interface MemberManagementProps {
@@ -23,6 +26,7 @@ export function MemberManagement({ projectName }: MemberManagementProps) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<"editor" | "viewer">("editor");
   const [sending, setSending] = useState(false);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
@@ -31,7 +35,7 @@ export function MemberManagement({ projectName }: MemberManagementProps) {
   }, []);
 
   useEffect(() => {
-    refresh().catch((err) => setError(String(err)));
+    refresh().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [refresh]);
 
   const handleSubmit = useCallback(
@@ -58,8 +62,19 @@ export function MemberManagement({ projectName }: MemberManagementProps) {
 
   const handleCancel = useCallback(
     async (inviteId: string) => {
-      await cancelInvite(inviteId);
-      await refresh();
+      // Requirement 13.3/13.4: disable the triggering control while the
+      // cancellation is in flight, and surface the specific reason rather
+      // than letting a failure here throw an unhandled rejection.
+      setError(null);
+      setCancellingId(inviteId);
+      try {
+        await cancelInvite(inviteId);
+        await refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCancellingId(null);
+      }
     },
     [refresh],
   );
@@ -80,8 +95,13 @@ export function MemberManagement({ projectName }: MemberManagementProps) {
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           required
+          disabled={sending}
         />
-        <select value={role} onChange={(e) => setRole(e.target.value as "editor" | "viewer")}>
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value as "editor" | "viewer")}
+          disabled={sending}
+        >
           <option value="editor">Editor</option>
           <option value="viewer">Viewer</option>
         </select>
@@ -103,8 +123,8 @@ export function MemberManagement({ projectName }: MemberManagementProps) {
                 {invite.role} · invited by {invite.invited_by_email}
               </div>
             </div>
-            <button className="cancel" onClick={() => handleCancel(invite.id)}>
-              Cancel
+            <button className="cancel" disabled={cancellingId === invite.id} onClick={() => handleCancel(invite.id)}>
+              {cancellingId === invite.id ? "Cancelling…" : "Cancel"}
             </button>
           </div>
         ))}

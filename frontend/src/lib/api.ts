@@ -269,3 +269,132 @@ export async function acceptInvite(token: string, password?: string): Promise<Ac
   }
   return res.json() as Promise<AcceptInviteResult>;
 }
+
+// --- Conversations and messages --------------------------------------------
+
+export interface ConversationSummary {
+  id: string;
+  project_id: string;
+  title: string;
+  created_by: string;
+  created_at: string;
+  last_active: string;
+}
+
+export interface CitationSummary {
+  marker: number;
+  chunk_id: string | null;
+  document_id: string | null;
+  available: boolean;
+}
+
+export interface MessageSummary {
+  id: string;
+  session_id: string;
+  role: "user" | "assistant";
+  text: string;
+  author_id: string | null;
+  grounded: boolean;
+  created_at: string;
+  citations: CitationSummary[];
+}
+
+/** Start a new conversation. Admin/editor only server-side -- a viewer's
+ * call fails with 403 (surfaced via `request()`'s thrown Error).
+ */
+export function createConversation(title?: string): Promise<ConversationSummary> {
+  return request(`/api/projects/${DEV_PROJECT_ID}/conversations`, {
+    method: "POST",
+    body: JSON.stringify({ title: title ?? null }),
+  });
+}
+
+/** List a project's conversations, most recently active first. Readable
+ * by any member regardless of role.
+ */
+export function listConversations(): Promise<ConversationSummary[]> {
+  return request(`/api/projects/${DEV_PROJECT_ID}/conversations`);
+}
+
+/** List a conversation's messages in order, with citations attached. */
+export function getConversationMessages(conversationId: string): Promise<MessageSummary[]> {
+  return request(`/api/conversations/${conversationId}/messages`);
+}
+
+/** Ask a question in a conversation, streaming the assistant's answer as
+ * it is generated (Requirement 7.5). `request()` can't be reused here --
+ * it always awaits and parses a full JSON body, which is exactly what a
+ * streaming response must not do -- so this talks to `fetch` directly.
+ *
+ * Two distinct server responses are both handled by this one function:
+ *  - A grounded answer: `StreamingResponse` with `media_type=text/plain`,
+ *    body arriving as plain text fragments. `onFragment` is called once
+ *    per chunk as it is read off the stream.
+ *  - A refusal: a single, non-streamed `JSONResponse` shaped like
+ *    `MessageSummary` (grounded: false, citations: []). Detected by
+ *    content-type rather than assumed, and reported as one fragment
+ *    followed immediately by `done`, so callers don't need two code
+ *    paths to render it.
+ *
+ * Returns the full final text once the stream (or refusal body) has been
+ * completely read, so callers can reconcile their optimistic local state
+ * without a second round-trip if they don't want one.
+ */
+export async function streamAnswer(
+  conversationId: string,
+  question: string,
+  onFragment: (text: string) => void,
+): Promise<{ text: string; grounded: boolean }> {
+  const res = await fetch(`${API_BASE}/api/conversations/${conversationId}/messages`, {
+    method: "POST",
+    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      "X-User-Id": DEV_USER_ID,
+      ...csrfHeaders("POST"),
+    },
+    body: JSON.stringify({ question }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    let detail = body;
+    try {
+      const parsed = JSON.parse(body);
+      if (typeof parsed?.detail === "string") detail = parsed.detail;
+    } catch {
+      // body wasn't JSON -- fall back to the raw text
+    }
+    throw new Error(detail || `${res.status} ${res.statusText}`);
+  }
+
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    // The refusal path: one fixed JSON body, nothing progressive about it.
+    const payload = (await res.json()) as MessageSummary;
+    onFragment(payload.text);
+    return { text: payload.text, grounded: payload.grounded };
+  }
+
+  if (!res.body) {
+    // No streaming support in this environment -- fall back to reading
+    // the whole body at once rather than failing outright.
+    const text = await res.text();
+    onFragment(text);
+    return { text, grounded: true };
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let fullText = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const fragment = decoder.decode(value, { stream: true });
+    if (fragment) {
+      fullText += fragment;
+      onFragment(fragment);
+    }
+  }
+  return { text: fullText, grounded: true };
+}

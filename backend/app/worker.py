@@ -23,6 +23,7 @@ from psycopg import Connection
 
 from app import db, jobs
 from app.config import get_settings
+from app.index import run_index_job
 from app.pipeline import run_parse_job
 
 log = logging.getLogger("app.worker")
@@ -31,8 +32,7 @@ _stop = False
 
 StageHandler = Callable[[Connection, jobs.Job], None]
 
-HANDLERS: dict[str, StageHandler] = {"parse": run_parse_job}
-"""The index handler (task 4.4) registers itself here as 'index' when it lands."""
+HANDLERS: dict[str, StageHandler] = {"parse": run_parse_job, "index": run_index_job}
 
 
 def _request_stop(signum: int, _frame: FrameType | None) -> None:

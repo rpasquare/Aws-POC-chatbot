@@ -7,6 +7,9 @@ import {
   listDocuments,
   uploadToS3,
 } from "../lib/api";
+// Explicit import of the shared .primary/.error-hint/.empty-hint
+// primitives this component relies on (Requirement 13.1).
+import "../App.css";
 import "./DocumentList.css";
 
 const PROCESSING_STATUSES = new Set(["awaiting_upload", "pending_parse", "parsing", "indexing"]);
@@ -53,7 +56,7 @@ export function DocumentList({ selectedId, onSelect, canUpload = true }: Documen
   }, []);
 
   useEffect(() => {
-    refresh().catch((err) => setError(String(err)));
+    refresh().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [refresh]);
 
   const pollDocument = useCallback((documentId: string) => {
@@ -72,7 +75,7 @@ export function DocumentList({ selectedId, onSelect, canUpload = true }: Documen
       } catch (err) {
         window.clearInterval(handle);
         pollHandles.current.delete(documentId);
-        setError(String(err));
+        setError(err instanceof Error ? err.message : String(err));
       }
     }, 2000);
     pollHandles.current.set(documentId, handle);
@@ -95,7 +98,7 @@ export function DocumentList({ selectedId, onSelect, canUpload = true }: Documen
         await refresh();
         pollDocument(result.document_id);
       } catch (err) {
-        setError(String(err));
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setUploading(false);
       }
