@@ -184,6 +184,39 @@ def test_settings_expose_configured_guardrail_id_and_version():
     assert settings.bedrock_guardrail_version
 
 
+def test_settings_start_when_pii_resources_are_unset(monkeypatch):
+    import os
+
+    from app.config import Settings
+
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("BEDROCK_GUARDRAIL_ID", "BEDROCK_GUARDRAIL_VERSION", "PII_KMS_KEY_ID")
+    }
+    monkeypatch.setattr(os, "environ", env)
+
+    settings = Settings(_env_file=None)
+
+    assert settings.bedrock_guardrail_id == ""
+    assert settings.bedrock_guardrail_version == ""
+    assert settings.pii_kms_key_id == ""
+
+
+def test_check_guardrail_skips_bedrock_when_unconfigured(monkeypatch):
+    monkeypatch.setattr(
+        guardrails,
+        "get_settings",
+        lambda: type("S", (), {"bedrock_guardrail_id": ""})(),
+    )
+
+    result = guardrails.check_guardrail("Contact John Smith at john@example.com")
+
+    assert result.filtered_text == "Contact John Smith at john@example.com"
+    assert result.pii_detected is False
+    assert result.occurrences == ()
+
+
 def test_missing_guardrail_id_fails_startup(monkeypatch):
     import os
 
