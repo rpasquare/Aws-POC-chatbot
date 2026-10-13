@@ -58,6 +58,10 @@ sudo tee /opt/aws-poc-chatbot/backend/.env >/dev/null <<'EOF'
 AWS_REGION=us-east-1
 S3_BUCKET=REPLACE_WITH_YOUR_BUCKET
 EXTRACTION_SERVICE_URL=http://host.docker.internal:8001
+SESSION_COOKIE_SECURE=false
+EMAIL_BACKEND=smtp
+SMTP_HOST=mailpit
+FRONTEND_BASE_URL=http://PUBLIC_IP:8080
 EOF
 cd /opt/aws-poc-chatbot
 sudo docker compose -f backend/docker-compose.yml up -d --build
@@ -78,6 +82,16 @@ docker compose up -d db
 This starts a `pgvector`-enabled Postgres on `localhost:5433`.
 Port 5432 is left free because a dev machine may already be running the
 Pdf-To-Knowledge database there.
+
+## 1a. Start Mailpit (only needed for the project-invites feature)
+
+```bash
+cd backend
+docker compose up -d mailpit
+```
+
+Catches invite emails locally instead of sending them for real. View them at
+`http://localhost:8025`. Not needed if you aren't working on invites.
 
 ## 2. Start Pdf-To-Knowledge
 
@@ -101,6 +115,14 @@ pip install -e ".[dev]"
 Copy `.env.example` to `.env` and fill in real values — at minimum
 `DATABASE_URL`, `AWS_REGION`, `S3_BUCKET`, and `EXTRACTION_SERVICE_URL`
 (defaults to `http://localhost:8001`, matching step 2 above).
+
+You also need real AWS credentials in your shell, separate from `.env`:
+uploads go straight to S3 via presigned URLs, which the backend signs
+using whatever credentials boto3 finds in its normal resolution order. If
+you use an AWS SSO profile, that means `export AWS_PROFILE=your-profile`
+(and `aws sso login --profile your-profile` first) before starting the API
+and worker — `.env` cannot set this, since it's read by boto3 directly
+from the shell environment, not by this app's own config.
 
 Run migrations:
 ```bash
@@ -154,7 +176,8 @@ docker compose exec api python -m app.migrate seed
 | Container | Software | Host port |
 |---|---|---|
 | `db` | PostgreSQL 17 with pgvector | `5433` |
-| `api` | Python 3.12, FastAPI 0.115.6, Uvicorn 0.34.0, Pydantic 2.10.4, psycopg 3.2.3, boto3 1.35.87, httpx 0.28.1, pypdfium2 5.13.0, Pillow 11.1.0 | `8000` |
+| `mailpit` | Catches invite email locally | `127.0.0.1:8025` |
+| `api` | Python 3.12, FastAPI 0.115.6, Uvicorn 0.34.0, Pydantic 2.10.4, psycopg 3.2.3, boto3 1.35.87, httpx 0.28.1, pypdfium2 5.13.0, Pillow 11.1.0, argon2-cffi 25.1.0 | `8000` |
 | `worker` | The same image as `api` | none |
 | `frontend` | Built with Node 22, served by nginx 1.27 | `8080` |
 
@@ -184,6 +207,10 @@ workflow**. That workflow runs only when you start it.
    AWS_REGION=us-east-1
    S3_BUCKET=your-bucket-name
    EXTRACTION_SERVICE_URL=http://host.docker.internal:8001
+   SESSION_COOKIE_SECURE=false
+   EMAIL_BACKEND=smtp
+   SMTP_HOST=mailpit
+   FRONTEND_BASE_URL=http://PUBLIC_IP:8080
    ```
 
 4. `docker compose -f backend/docker-compose.yml up -d --build` from
@@ -195,7 +222,12 @@ workflow**. That workflow runs only when you start it.
    `s3:GetObject`, `s3:PutObject`, and `s3:HeadObject` on the bucket.
    Create that bucket in `us-east-1` and add a CORS rule that allows
    `PUT`, `GET`, and `HEAD` from `http://PUBLIC_IP:8080`. Uploads need
-   those. `/health` does not.
+   those. `/health` does not. The same role also needs
+   `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`
+   in `us-east-1` for `amazon.titan-embed-text-v2:0` and
+   `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. Without those,
+   uploads can finish parsing and questions still fail. Invite email
+   through SES needs `ses:SendEmail` and `EMAIL_BACKEND=ses`.
 7. In this GitHub repository, add the same three Actions variables used by
    Pdf-To-Knowledge: `AWS_REGION`, `AWS_ROLE_ARN`, and `EC2_INSTANCE_ID`.
    The existing GitHub role can send the deploy command to this instance.

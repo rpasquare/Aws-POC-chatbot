@@ -7,6 +7,9 @@ import {
   listDocuments,
   uploadToS3,
 } from "../lib/api";
+// Explicit import of the shared .primary/.error-hint/.empty-hint
+// primitives this component relies on (Requirement 13.1).
+import "../App.css";
 import "./DocumentList.css";
 
 const PROCESSING_STATUSES = new Set(["awaiting_upload", "pending_parse", "parsing", "indexing"]);
@@ -31,9 +34,16 @@ function statusLabel(status: string): string {
 interface DocumentListProps {
   selectedId: string | null;
   onSelect: (documentId: string) => void;
+  /** Requirement 7.6 (project-invites spec): hidden entirely rather than
+   * shown disabled, since the server will reject the attempt either way
+   * and the role chip already answers "why can't I do this." Defaults to
+   * true so this stays a no-op for any caller that hasn't resolved a role
+   * yet (e.g. still loading), matching today's behaviour.
+   */
+  canUpload?: boolean;
 }
 
-export function DocumentList({ selectedId, onSelect }: DocumentListProps) {
+export function DocumentList({ selectedId, onSelect, canUpload = true }: DocumentListProps) {
   const [docs, setDocs] = useState<DocumentSummary[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +56,7 @@ export function DocumentList({ selectedId, onSelect }: DocumentListProps) {
   }, []);
 
   useEffect(() => {
-    refresh().catch((err) => setError(String(err)));
+    refresh().catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [refresh]);
 
   const pollDocument = useCallback((documentId: string) => {
@@ -65,7 +75,7 @@ export function DocumentList({ selectedId, onSelect }: DocumentListProps) {
       } catch (err) {
         window.clearInterval(handle);
         pollHandles.current.delete(documentId);
-        setError(String(err));
+        setError(err instanceof Error ? err.message : String(err));
       }
     }, 2000);
     pollHandles.current.set(documentId, handle);
@@ -88,7 +98,7 @@ export function DocumentList({ selectedId, onSelect }: DocumentListProps) {
         await refresh();
         pollDocument(result.document_id);
       } catch (err) {
-        setError(String(err));
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setUploading(false);
       }
@@ -114,20 +124,24 @@ export function DocumentList({ selectedId, onSelect }: DocumentListProps) {
         {docs.length === 0 && <p className="empty-hint">No documents yet. Add one to see it get parsed.</p>}
       </div>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="application/pdf"
-        style={{ display: "none" }}
-        onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) handleFileChosen(file);
-          e.target.value = "";
-        }}
-      />
-      <button className="primary" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
-        {uploading ? "Uploading…" : "+ Add document"}
-      </button>
+      {canUpload && (
+        <>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/pdf"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleFileChosen(file);
+              e.target.value = "";
+            }}
+          />
+          <button className="primary" disabled={uploading} onClick={() => fileInputRef.current?.click()}>
+            {uploading ? "Uploading…" : "+ Add document"}
+          </button>
+        </>
+      )}
       {error && <p className="error-hint">{error}</p>}
     </div>
   );
