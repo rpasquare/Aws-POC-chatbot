@@ -1,8 +1,12 @@
 name: CI/CD
 
-# Manual only. This workflow does not run on push or pull request,
-# so it does not consume GitHub Actions minutes until someone starts it.
+# Pull requests run tests. A merge to main deploys the shared UAT instance.
+# workflow_dispatch remains for a test-only run or a redeploy.
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
@@ -12,11 +16,15 @@ on:
           - test
           - deploy
           - test-and-deploy
-        default: test
+        default: test-and-deploy
+
+concurrency:
+  group: aws-poc-chatbot-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   test:
-    if: inputs.action != 'deploy'
+    if: github.event_name != 'workflow_dispatch' || inputs.action != 'deploy'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,10 +51,14 @@ jobs:
   deploy:
     if: >-
       always() &&
-      (inputs.action == 'deploy' || inputs.action == 'test-and-deploy') &&
-      (needs.test.result == 'success' || needs.test.result == 'skipped')
+      (needs.test.result == 'success' || needs.test.result == 'skipped') &&
+      (
+        (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
+        (github.event_name == 'workflow_dispatch' && (inputs.action == 'deploy' || inputs.action == 'test-and-deploy'))
+      )
     needs: [test]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       id-token: write
       contents: read
@@ -82,22 +94,48 @@ jobs:
               ("git fetch origin " + $sha),
               ("git checkout --detach " + $sha),
               "chmod +x deploy/ec2-remote.sh",
-              "./deploy/ec2-remote.sh"
+              "./deploy/ec2-remote.sh",
+              "curl -sf http://127.0.0.1:8080/health"
             ]
           }')
           command_id=$(aws ssm send-command \
             --instance-ids "$EC2_INSTANCE_ID" \
             --document-name AWS-RunShellScript \
             --comment "aws-poc-chatbot ${GITHUB_SHA}" \
+            --timeout-seconds 1800 \
             --parameters "$params" \
             --query Command.CommandId \
             --output text)
           echo "SSM command ${command_id}"
-          aws ssm wait command-executed \
-            --command-id "$command_id" \
-            --instance-id "$EC2_INSTANCE_ID"
-          aws ssm get-command-invocation \
-            --command-id "$command_id" \
-            --instance-id "$EC2_INSTANCE_ID" \
-            --query '{Status:Status,Stdout:StandardOutputContent,Stderr:StandardErrorContent}' \
-            --output json
+
+          deadline=$((SECONDS + 1800))
+          while true; do
+            if ! invocation=$(aws ssm get-command-invocation \
+              --command-id "$command_id" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --output json 2>/tmp/ssm-err); then
+              if ! grep -q InvocationDoesNotExist /tmp/ssm-err; then
+                cat /tmp/ssm-err >&2
+                exit 1
+              fi
+              status="Pending"
+            else
+              status=$(jq -r .Status <<<"$invocation")
+            fi
+            echo "SSM status ${status}"
+            case "$status" in
+              Success)
+                jq '{Status,Stdout:.StandardOutputContent,Stderr:.StandardErrorContent}' <<<"$invocation"
+                break
+                ;;
+              Failed|Cancelled|TimedOut|Cancelling)
+                jq '{Status,Stdout:.StandardOutputContent,Stderr:.StandardErrorContent}' <<<"$invocation"
+                exit 1
+                ;;
+            esac
+            if (( SECONDS >= deadline )); then
+              echo "Timed out waiting for SSM command ${command_id}" >&2
+              exit 1
+            fi
+            sleep 15
+          done

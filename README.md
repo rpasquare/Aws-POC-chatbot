@@ -25,12 +25,16 @@ Five things, in this order:
 If step 2 isn't running, document uploads will get stuck at the parsing
 stage — the worker will fail trying to reach the extraction service.
 
-## Manual deploy from Session Manager
+## Deploy
 
-Use these commands while the GitHub account has no Actions minutes left.
+A merge to `main` runs tests, then deploys this app on the shared UAT
+instance. Pull requests run tests only. **Actions → CI/CD → Run workflow**
+can redeploy `main` without another merge. Pdf-To-Knowledge on port `8001`
+is left alone.
+
+Session Manager is the fallback when Actions cannot reach the instance.
 Connect with EC2 → the instance → **Connect** → **Session Manager**, then
-paste them. Do not use **Run workflow** until the billing cycle resets.
-Pdf-To-Knowledge must already be running on this instance at port `8001`.
+paste the update commands below.
 
 Update an instance that already has `/opt/aws-poc-chatbot`:
 
@@ -194,8 +198,9 @@ that service. Pdf-To-Knowledge keeps port `8001`. This app uses `8000` for
 the API and `8080` for the site. Its database stays inside Docker and is
 published on `5433`, so it does not take port `5432`.
 
-The first copy is manual. Later deploys are **Actions → CI/CD → Run
-workflow**. That workflow runs only when you start it.
+The first copy is manual. After that, a merge to `main` deploys this
+instance. The workflow assumes `pdf-to-knowledge-github-actions` and sends
+the update through Systems Manager.
 
 1. Session Manager into the instance.
 2. Clone to `/opt/aws-poc-chatbot` with the same style of read-only deploy
@@ -228,9 +233,10 @@ workflow**. That workflow runs only when you start it.
    `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. Without those,
    uploads can finish parsing and questions still fail. Invite email
    through SES needs `ses:SendEmail` and `EMAIL_BACKEND=ses`.
-7. In this GitHub repository, add the same three Actions variables used by
-   Pdf-To-Knowledge: `AWS_REGION`, `AWS_ROLE_ARN`, and `EC2_INSTANCE_ID`.
-   The existing GitHub role can send the deploy command to this instance.
+7. In this GitHub repository, set `AWS_REGION`, `AWS_ROLE_ARN`, and
+   `EC2_INSTANCE_ID`. On the role in `AWS_ROLE_ARN`, the trust policy must
+   allow `repo:rpasquare/Aws-POC-chatbot:*` as well as the Pdf-To-Knowledge
+   repository. Without that subject, the deploy job cannot assume the role.
 
 `http://PUBLIC_IP:8080/health` should return `{"status":"ok"}`.
 
