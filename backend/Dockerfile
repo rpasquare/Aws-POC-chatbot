@@ -7,12 +7,17 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /srv
 
 # Dependency layer first so application edits do not invalidate it.
+# Install whatever pyproject.toml declares, including cryptography, which
+# the API imports at startup even when PII masking is left off.
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir "fastapi==0.115.6" "uvicorn[standard]==0.34.0" \
-    "pydantic==2.10.4" "pydantic-settings==2.14.0" \
-    "psycopg[binary,pool]==3.2.3" "boto3==1.35.87" \
-    "httpx==0.28.1" "pypdfium2==5.13.0" "pillow==11.1.0" \
-    "argon2-cffi==25.1.0"
+RUN python - <<'PY'
+import subprocess
+import tomllib
+
+with open("pyproject.toml", "rb") as project_file:
+    dependencies = tomllib.load(project_file)["project"]["dependencies"]
+subprocess.check_call(["pip", "install", "--no-cache-dir", *dependencies])
+PY
 
 COPY app ./app
 COPY migrations ./migrations
