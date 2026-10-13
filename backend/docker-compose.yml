@@ -1,4 +1,11 @@
 services:
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:1025:1025"  # SMTP, matches SMTP_PORT default
+      - "127.0.0.1:8025:8025"  # web UI, open in a browser to see caught invite emails
+    restart: unless-stopped
+
   db:
     image: pgvector/pgvector:pg17
     environment:
@@ -24,6 +31,12 @@ services:
       - .env
     environment:
       DATABASE_URL: postgresql://deal:deal@db:5432/deal_workspace
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-smtp}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      # The shared site is plain HTTP on port 8080. A Secure cookie is
+      # dropped by the browser there, so sign-in would not stick.
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:8080}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -32,6 +45,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      mailpit:
+        condition: service_started
 
   worker:
     build: .

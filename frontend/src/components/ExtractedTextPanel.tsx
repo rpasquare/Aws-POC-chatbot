@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { type ExtractedText, getExtractedText } from "../lib/api";
+// Explicit import of the shared .empty-hint/.loading-hint/.error-hint
+// primitives this component relies on (Requirement 13.1).
+import "../App.css";
 import "./ExtractedTextPanel.css";
 
 export function ExtractedTextPanel({ documentId }: { documentId: string | null }) {
@@ -15,14 +18,12 @@ export function ExtractedTextPanel({ documentId }: { documentId: string | null }
     setData(null);
     getExtractedText(documentId)
       .then(setData)
-      .catch((err) => setError(String(err)));
+      .catch((err) => setError(err instanceof Error ? err.message : String(err)));
   }, [documentId]);
 
   if (!documentId) {
     return (
-      <p style={{ color: "var(--muted)" }}>
-        Select a document on the left once it has finished parsing to see the extracted text.
-      </p>
+      <p className="empty-hint">Select a document on the left once it has finished parsing to see the extracted text.</p>
     );
   }
 
@@ -31,7 +32,7 @@ export function ExtractedTextPanel({ documentId }: { documentId: string | null }
   }
 
   if (!data) {
-    return <p style={{ color: "var(--muted)" }}>Loading…</p>;
+    return <p className="loading-hint">Loading…</p>;
   }
 
   return (
@@ -50,9 +51,7 @@ export function ExtractedTextPanel({ documentId }: { documentId: string | null }
           </div>
         </div>
       ))}
-      {data.blocks.length === 0 && (
-        <p style={{ color: "var(--muted)" }}>No text extracted for this document.</p>
-      )}
+      {data.blocks.length === 0 && <p className="empty-hint">No text extracted for this document.</p>}
     </div>
   );
 }

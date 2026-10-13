@@ -5,6 +5,7 @@ backend/**/__pycache__/
 *.pyc
 backend/.pytest_cache/
 backend/.hypothesis/
+.hypothesis/
 backend/.uv/
 backend/uv.lock
 backend/deal_workspace.egg-info/

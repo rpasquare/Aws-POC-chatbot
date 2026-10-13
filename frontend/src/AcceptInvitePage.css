@@ -1,0 +1,25 @@
+.accept-invite {
+  max-width: 380px;
+  margin: 80px auto;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  text-align: center;
+}
+.accept-title {
+  font-family: var(--serif);
+  font-size: 18px;
+  margin: 0 0 18px;
+}
+.accept-invite form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.accept-invite input {
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px;
+  font-size: 13px;
+}
