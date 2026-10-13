@@ -37,6 +37,23 @@ class Settings(BaseSettings):
     """Base URL of the standalone PDF extraction service (Pdf-To-Knowledge).
     The parse stage submits jobs here instead of extracting in-process."""
 
+    bedrock_guardrail_id: str
+    """Identifier of the AWS Bedrock Guardrail resource configured with a
+    PII policy (ANONYMIZE action) covering Name, Email, Phone, Address,
+    SSN, Credit Card and Bank Account. Required — see Requirement 16.10.
+    The guardrail resource itself is created out-of-band (console/CLI),
+    not by this application."""
+
+    bedrock_guardrail_version: str
+    """Published version of the guardrail above, e.g. "1" or "DRAFT" in
+    development. Required alongside bedrock_guardrail_id."""
+
+    pii_kms_key_id: str
+    """KMS key id or alias used for envelope encryption of
+    chunks.original_text_enc (Requirement 16.12). Required -- missing
+    PII decryption capability must fail startup, not the first time a
+    chunk with PII is indexed."""
+
     # --- storage ----------------------------------------------------------
     s3_endpoint_url: str | None = None
     """Set only for local object-storage emulation."""
@@ -69,7 +86,14 @@ class Settings(BaseSettings):
     answer_model: str = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
     retrieval_top_k: int = Field(default=8, gt=0)
     rrf_k: int = Field(default=60, gt=0)
-    relevance_threshold: float = 0.02
+    relevance_threshold: float = 0.01
+    """Default lowered from 0.02 after live testing: with a small corpus
+    (a handful of chunks) and only two RRF methods, fused scores compress
+    into a narrow band regardless of actual relevance -- a genuinely
+    correct match scored 0.0164 and was refused under the original 0.02
+    default. Needs recalibration against a larger, more realistic corpus
+    (see design doc's "Refusal path" section); this is a stopgap, not a
+    final value."""
 
     # --- auth (project-invites feature) -----------------------------------
     session_expiry_seconds: int = Field(default=60 * 60 * 24 * 30, gt=0)

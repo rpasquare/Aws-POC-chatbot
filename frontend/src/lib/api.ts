@@ -291,6 +291,8 @@ export interface CitationSummary {
   chunk_id: string | null;
   document_id: string | null;
   available: boolean;
+  filename: string | null;
+  page_from: number | null;
 }
 
 export interface MessageSummary {
@@ -302,6 +304,26 @@ export interface MessageSummary {
   grounded: boolean;
   created_at: string;
   citations: CitationSummary[];
+  /** Requirement 16.18: true when a model audit log exists for this
+   * message (always false for refusals, Requirement 16.20) -- lets the
+   * client decide whether to render the eye icon without an extra
+   * round trip per message.
+   */
+  has_model_log: boolean;
+}
+
+export interface ModelLog {
+  message_id: string;
+  request_text: string;
+  response_text: string;
+}
+
+/** Fetch the exact masked prompt sent to, and raw response received
+ * from, the answer model for one message (Requirement 16.18). Only
+ * called when `has_model_log` is true for that message.
+ */
+export function getModelLog(messageId: string): Promise<ModelLog> {
+  return request(`/api/messages/${messageId}/model-log`);
 }
 
 /** Start a new conversation. Admin/editor only server-side -- a viewer's
