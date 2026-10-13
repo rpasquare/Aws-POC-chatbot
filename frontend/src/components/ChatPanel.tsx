@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type MessageSummary, getConversationMessages, streamAnswer } from "../lib/api";
+import { type MessageSummary, type ModelLog, getConversationMessages, getModelLog, streamAnswer } from "../lib/api";
 // Explicit import of the shared .primary/.error-hint/.empty-hint
 // primitives this component relies on (Requirement 13.1).
 import "../App.css";
@@ -28,16 +28,73 @@ function CitationChips({ citations }: { citations: MessageSummary["citations"] }
   if (citations.length === 0) return null;
   return (
     <span className="citations">
-      {citations.map((c) => (
-        <span key={c.marker} className={`chip ${c.available ? "" : "unavailable"}`} title={c.document_id ?? undefined}>
-          [{c.marker}]
-        </span>
-      ))}
+      {citations.map((c) => {
+        const label = c.available && c.filename ? `${c.filename}, page ${c.page_from}` : "source unavailable";
+        return (
+          <span key={c.marker} className={`chip ${c.available ? "" : "unavailable"}`} title={label}>
+            [{c.marker}]
+            {c.available && c.page_from != null && <span className="chip-page"> p.{c.page_from}</span>}
+          </span>
+        );
+      })}
     </span>
   );
 }
 
+/** Requirement 16.18/16.19: shows the exact masked prompt sent to the
+ * answer model (large) and the exact raw response received from it
+ * (small, pre-substitution), as distinct, clearly labelled sections.
+ */
+function ModelLogPopup({ log, onClose }: { log: ModelLog; onClose: () => void }) {
+  return (
+    <div className="model-log-overlay" onClick={onClose}>
+      <div className="model-log-popup" onClick={(e) => e.stopPropagation()}>
+        <div className="model-log-header">
+          <h3>Model audit log</h3>
+          <button type="button" className="model-log-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+        <section className="model-log-section">
+          <h4>Request sent to the model</h4>
+          <pre className="model-log-text model-log-request">{log.request_text}</pre>
+        </section>
+        <section className="model-log-section">
+          <h4>Raw response received</h4>
+          <pre className="model-log-text model-log-response">{log.response_text}</pre>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
 function MessageBubble({ message }: { message: LocalMessage }) {
+  const [log, setLog] = useState<ModelLog | null>(null);
+  const [loadingLog, setLoadingLog] = useState(false);
+  const [logError, setLogError] = useState<string | null>(null);
+
+  const handleViewLog = useCallback(async () => {
+    setLogError(null);
+    setLoadingLog(true);
+    try {
+      const result = await getModelLog(message.id);
+      setLog(result);
+    } catch (err) {
+      setLogError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoadingLog(false);
+    }
+  }, [message.id]);
+
   if (message.role === "user") {
     return (
       <div className="msg user">
@@ -78,7 +135,21 @@ function MessageBubble({ message }: { message: LocalMessage }) {
         {message.text}
         {message.pending && <span className="cursor" />}
         <CitationChips citations={message.citations} />
+        {message.has_model_log && !message.pending && (
+          <button
+            type="button"
+            className="model-log-trigger"
+            onClick={handleViewLog}
+            disabled={loadingLog}
+            title="View what was sent to and received from the model"
+            aria-label="View model audit log"
+          >
+            <EyeIcon />
+          </button>
+        )}
       </div>
+      {logError && <p className="error-hint">{logError}</p>}
+      {log && <ModelLogPopup log={log} onClose={() => setLog(null)} />}
     </div>
   );
 }
@@ -132,6 +203,7 @@ export function ChatPanel({ conversationId, canAsk = true }: ChatPanelProps) {
           grounded: true,
           created_at: new Date().toISOString(),
           citations: [],
+          has_model_log: false,
         },
         {
           id: pendingId,
@@ -142,6 +214,7 @@ export function ChatPanel({ conversationId, canAsk = true }: ChatPanelProps) {
           grounded: true,
           created_at: new Date().toISOString(),
           citations: [],
+          has_model_log: false,
           pending: true,
         },
       ]);

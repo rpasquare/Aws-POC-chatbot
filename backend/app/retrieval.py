@@ -43,7 +43,14 @@ _CANDIDATE_POOL_SIZE = 50
 
 @dataclass(frozen=True)
 class RetrievedChunk:
-    """One chunk surfaced by hybrid retrieval, with its fused score."""
+    """One chunk surfaced by hybrid retrieval, with its fused score.
+
+    `pii_masked` and `original_text_enc` support answer-time reverse-
+    substitution (Requirement 16.12): when `pii_masked` is true, the
+    caller (`app.prompting.assemble_prompt`) decrypts `original_text_enc`
+    to recover the placeholder mapping. `original_text_enc` is `None`
+    whenever `pii_masked` is false -- there is nothing to recover.
+    """
 
     chunk_id: str
     document_id: str
@@ -53,6 +60,8 @@ class RetrievedChunk:
     page_to: int
     heading_path: str | None
     text: str
+    pii_masked: bool = False
+    original_text_enc: bytes | None = None
 
 
 def _vector_literal(vector: tuple[float, ...]) -> str:
@@ -138,6 +147,7 @@ def _load_chunk_details(conn: Connection, chunk_ids: list[str]) -> dict[str, dic
         return {}
     rows = conn.execute(
         "select c.id, c.document_id, c.page_from, c.page_to, c.heading_path, c.text, "
+        "       c.pii_masked, c.original_text_enc, "
         "       d.filename "
         "from chunks c "
         "join documents d on d.id = c.document_id "
@@ -197,6 +207,8 @@ def retrieve(
                 page_to=row["page_to"],
                 heading_path=row["heading_path"],
                 text=row["text"],
+                pii_masked=row["pii_masked"],
+                original_text_enc=bytes(row["original_text_enc"]) if row["original_text_enc"] is not None else None,
             )
         )
     return results

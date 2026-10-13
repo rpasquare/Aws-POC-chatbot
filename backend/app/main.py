@@ -28,14 +28,16 @@ from app.config import get_settings
 from app.conversations import (
     Conversation,
     ConversationNotFoundError,
+    MessageNotFoundError,
     create_conversation,
+    get_message_model_log,
     list_conversations,
     list_messages,
 )
 from app.csrf import CSRFMiddleware, generate_csrf_token, set_csrf_cookie
 from app.invite_acceptance import InviteNotValidError, PasswordRequiredError, accept_invite
 from app.invites import InviteRejectedError, cancel_invite, list_pending_invites, send_invite
-from app.prompting import assemble_prompt
+from app.prompting import assemble_prompt, substitute_originals
 from app.retrieval import retrieve
 from app.session_auth import SESSION_COOKIE_NAME, ResolvedCallerId
 from app.uploads import (
@@ -517,6 +519,8 @@ class CitationResponse(BaseModel):
     chunk_id: str | None
     document_id: str | None
     available: bool
+    filename: str | None
+    page_from: int | None
 
 
 class MessageResponse(BaseModel):
@@ -528,6 +532,7 @@ class MessageResponse(BaseModel):
     grounded: bool
     created_at: str
     citations: list[CitationResponse]
+    has_model_log: bool
 
 
 def _message_response(message) -> MessageResponse:
@@ -540,6 +545,7 @@ def _message_response(message) -> MessageResponse:
         grounded=message.grounded,
         created_at=message.created_at.isoformat(),
         citations=[CitationResponse(**c) for c in message.citations],
+        has_model_log=message.has_model_log,
     )
 
 
@@ -557,6 +563,33 @@ def get_conversation_messages(
         except (ConversationNotFoundError, NotAMemberError):
             raise HTTPException(status_code=404, detail=NOT_FOUND) from None
     return [_message_response(m) for m in messages]
+
+
+class ModelLogResponse(BaseModel):
+    message_id: str
+    request_text: str
+    response_text: str
+
+
+@app.get("/api/messages/{message_id}/model-log")
+def get_model_log(
+    message_id: str,
+    caller_id: str = ResolvedCallerId,
+) -> ModelLogResponse:
+    """Return the exact masked prompt sent to, and raw response received
+    from, the answer model for one grounded message (Requirement 16.18).
+
+    Any member (admin, editor or viewer) of the message's project may
+    read -- same gating as reading the conversation itself. 404 for a
+    non-member, a non-existent message, or a message with no log row
+    (refusals never have one, Requirement 16.20).
+    """
+    with db.connection() as conn:
+        try:
+            log = get_message_model_log(conn, user_id=caller_id, message_id=message_id)
+        except (MessageNotFoundError, NotAMemberError):
+            raise HTTPException(status_code=404, detail=NOT_FOUND) from None
+    return ModelLogResponse(message_id=log.message_id, request_text=log.request_text, response_text=log.response_text)
 
 
 class AskQuestionRequest(BaseModel):
@@ -636,21 +669,36 @@ def ask_question(
             full_text_parts.append(fragment)
             yield fragment
 
-        full_text = "".join(full_text_parts)
+        # `raw_response_text` is exactly what Claude returned, still
+        # carrying masked placeholders -- this, not the substituted
+        # version, is what Requirement 16.16/16.21 requires the audit log
+        # to persist. Citation marker extraction (below) also runs on
+        # this raw text; substitution only ever replaces placeholder
+        # tokens, never `[n]` markers, so the ordering is not load-bearing
+        # for citations, but doing substitution last keeps the raw log
+        # unambiguous.
+        raw_response_text = "".join(full_text_parts)
+        substituted_text = substitute_originals(raw_response_text, assembly.placeholder_mapping)
+
         with db.connection() as write_conn:
             row = write_conn.execute(
                 "insert into chat_messages (session_id, role, text, author_id, grounded) "
                 "values (%s, 'assistant', %s, null, true) "
                 "returning id",
-                (conversation_id, full_text),
+                (conversation_id, substituted_text),
             ).fetchone()
             message_id = str(row["id"])
             record_citations(
                 write_conn,
                 message_id=message_id,
-                answer_text=full_text,
+                answer_text=raw_response_text,
                 slot_map=assembly.slot_map,
                 chunks=chunks,
+            )
+            write_conn.execute(
+                "insert into message_model_logs (message_id, request_text, response_text) "
+                "values (%s, %s, %s)",
+                (message_id, assembly.prompt, raw_response_text),
             )
 
     # `stream_answer` is a generator: nothing runs until the first

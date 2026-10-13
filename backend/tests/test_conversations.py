@@ -15,7 +15,9 @@ import pytest
 from app.authz import NotAMemberError
 from app.conversations import (
     ConversationNotFoundError,
+    MessageNotFoundError,
     create_conversation,
+    get_message_model_log,
     list_conversations,
     list_messages,
 )
@@ -47,6 +49,7 @@ class _FakeConnection:
         self.sessions: list[dict] = []
         self.messages: list[dict] = []
         self.citations: list[dict] = []
+        self.model_logs: list[dict] = []
         self._next_session_id = 1
         self._next_message_id = 1
 
@@ -97,11 +100,36 @@ class _FakeConnection:
             rows.sort(key=lambda r: r["created_at"])
             return _FakeResult(rows=rows)
 
-        if normalized.startswith("select message_id, marker, chunk_id, document_id from message_citations"):
+        if normalized.startswith("select mc.message_id, mc.marker, mc.chunk_id, mc.document_id"):
             (message_ids,) = params
             rows = [dict(c) for c in self.citations if c["message_id"] in message_ids]
             rows.sort(key=lambda r: r["marker"])
             return _FakeResult(rows=rows)
+
+        if normalized.startswith("select message_id from message_model_logs where message_id = any"):
+            (message_ids,) = params
+            rows = [{"message_id": log["message_id"]} for log in self.model_logs if log["message_id"] in message_ids]
+            return _FakeResult(rows=rows)
+
+        if normalized.startswith(
+            "select cs.project_id from chat_messages cm join chat_sessions cs on cs.id = cm.session_id where cm.id"
+        ):
+            (message_id,) = params
+            for m in self.messages:
+                if m["id"] == message_id:
+                    for s in self.sessions:
+                        if s["id"] == m["session_id"]:
+                            return _FakeResult({"project_id": s["project_id"]})
+            return _FakeResult(None)
+
+        if normalized.startswith(
+            "select message_id, request_text, response_text from message_model_logs where message_id"
+        ):
+            (message_id,) = params
+            for log in self.model_logs:
+                if log["message_id"] == message_id:
+                    return _FakeResult(dict(log))
+            return _FakeResult(None)
 
         raise AssertionError(f"unexpected query in fake connection: {query!r}")
 
@@ -242,14 +270,28 @@ def test_list_messages_attaches_citations_to_the_right_message():
         ]
     )
     conn.citations.append(
-        {"message_id": "message-2", "marker": 1, "chunk_id": "chunk-1", "document_id": "doc-1"}
+        {
+            "message_id": "message-2",
+            "marker": 1,
+            "chunk_id": "chunk-1",
+            "document_id": "doc-1",
+            "filename": "report.pdf",
+            "page_from": 3,
+        }
     )
 
     messages = list_messages(conn, user_id="admin-1", conversation_id=conversation.id)
     assert len(messages) == 2
     assert messages[0].citations == []
     assert messages[1].citations == [
-        {"marker": 1, "chunk_id": "chunk-1", "document_id": "doc-1", "available": True}
+        {
+            "marker": 1,
+            "chunk_id": "chunk-1",
+            "document_id": "doc-1",
+            "available": True,
+            "filename": "report.pdf",
+            "page_from": 3,
+        }
     ]
 
 
@@ -268,10 +310,156 @@ def test_list_messages_marks_citation_unavailable_when_chunk_is_null():
         }
     )
     conn.citations.append(
-        {"message_id": "message-1", "marker": 1, "chunk_id": None, "document_id": None}
+        {
+            "message_id": "message-1",
+            "marker": 1,
+            "chunk_id": None,
+            "document_id": None,
+            "filename": None,
+            "page_from": None,
+        }
     )
 
     messages = list_messages(conn, user_id="admin-1", conversation_id=conversation.id)
     assert messages[0].citations == [
-        {"marker": 1, "chunk_id": None, "document_id": None, "available": False}
+        {"marker": 1, "chunk_id": None, "document_id": None, "available": False, "filename": None, "page_from": None}
     ]
+
+
+# --- has_model_log flag on list_messages (Requirement 16.18) --------------
+
+
+def test_list_messages_has_model_log_true_when_log_row_exists():
+    conn = _FakeConnection(members={("project-1", "admin-1"): "admin"})
+    conversation = create_conversation(conn, user_id="admin-1", project_id="project-1")
+    conn.messages.append(
+        {
+            "id": "message-1",
+            "session_id": conversation.id,
+            "role": "assistant",
+            "text": "The NAV is $42.6m [1].",
+            "author_id": None,
+            "grounded": True,
+            "created_at": "2024-01-01T00:00:01+00:00",
+        }
+    )
+    conn.model_logs.append(
+        {"message_id": "message-1", "request_text": "prompt", "response_text": "raw response"}
+    )
+
+    messages = list_messages(conn, user_id="admin-1", conversation_id=conversation.id)
+    assert messages[0].has_model_log is True
+
+
+def test_list_messages_has_model_log_false_for_refusal_message():
+    conn = _FakeConnection(members={("project-1", "admin-1"): "admin"})
+    conversation = create_conversation(conn, user_id="admin-1", project_id="project-1")
+    conn.messages.append(
+        {
+            "id": "message-1",
+            "session_id": conversation.id,
+            "role": "assistant",
+            "text": "documents do not cover this",
+            "author_id": None,
+            "grounded": False,
+            "created_at": "2024-01-01T00:00:01+00:00",
+        }
+    )
+    # No model_logs row -- a refusal never gets one.
+
+    messages = list_messages(conn, user_id="admin-1", conversation_id=conversation.id)
+    assert messages[0].has_model_log is False
+
+
+# --- get_message_model_log (Requirement 16.18, 16.20) ---------------------
+
+
+def test_get_message_model_log_returns_log_for_member():
+    conn = _FakeConnection(members={("project-1", "admin-1"): "admin"})
+    conversation = create_conversation(conn, user_id="admin-1", project_id="project-1")
+    conn.messages.append(
+        {
+            "id": "message-1",
+            "session_id": conversation.id,
+            "role": "assistant",
+            "text": "The contact is John Smith [1].",
+            "author_id": None,
+            "grounded": True,
+            "created_at": "2024-01-01T00:00:01+00:00",
+        }
+    )
+    conn.model_logs.append(
+        {"message_id": "message-1", "request_text": "masked prompt {NAME}", "response_text": "The contact is {NAME} [1]."}
+    )
+
+    log = get_message_model_log(conn, user_id="admin-1", message_id="message-1")
+    assert log.message_id == "message-1"
+    assert log.request_text == "masked prompt {NAME}"
+    assert log.response_text == "The contact is {NAME} [1]."
+
+
+@pytest.mark.parametrize("role", ["admin", "editor", "viewer"])
+def test_get_message_model_log_any_member_role_can_read(role):
+    conn = _FakeConnection(members={("project-1", "admin-1"): "admin", ("project-1", "user-1"): role})
+    conversation = create_conversation(conn, user_id="admin-1", project_id="project-1")
+    conn.messages.append(
+        {
+            "id": "message-1",
+            "session_id": conversation.id,
+            "role": "assistant",
+            "text": "answer",
+            "author_id": None,
+            "grounded": True,
+            "created_at": "2024-01-01T00:00:01+00:00",
+        }
+    )
+    conn.model_logs.append({"message_id": "message-1", "request_text": "p", "response_text": "r"})
+
+    log = get_message_model_log(conn, user_id="user-1", message_id="message-1")
+    assert log.message_id == "message-1"
+
+
+def test_get_message_model_log_denies_non_member():
+    conn = _FakeConnection(members={("project-1", "admin-1"): "admin"})
+    conversation = create_conversation(conn, user_id="admin-1", project_id="project-1")
+    conn.messages.append(
+        {
+            "id": "message-1",
+            "session_id": conversation.id,
+            "role": "assistant",
+            "text": "answer",
+            "author_id": None,
+            "grounded": True,
+            "created_at": "2024-01-01T00:00:01+00:00",
+        }
+    )
+    conn.model_logs.append({"message_id": "message-1", "request_text": "p", "response_text": "r"})
+
+    with pytest.raises(NotAMemberError):
+        get_message_model_log(conn, user_id="stranger-1", message_id="message-1")
+
+
+def test_get_message_model_log_raises_for_nonexistent_message():
+    conn = _FakeConnection(members={("project-1", "admin-1"): "admin"})
+    with pytest.raises(MessageNotFoundError):
+        get_message_model_log(conn, user_id="admin-1", message_id="does-not-exist")
+
+
+def test_get_message_model_log_raises_for_refusal_message_with_no_log():
+    conn = _FakeConnection(members={("project-1", "admin-1"): "admin"})
+    conversation = create_conversation(conn, user_id="admin-1", project_id="project-1")
+    conn.messages.append(
+        {
+            "id": "message-1",
+            "session_id": conversation.id,
+            "role": "assistant",
+            "text": "documents do not cover this",
+            "author_id": None,
+            "grounded": False,
+            "created_at": "2024-01-01T00:00:01+00:00",
+        }
+    )
+    # No model_logs row.
+
+    with pytest.raises(MessageNotFoundError):
+        get_message_model_log(conn, user_id="admin-1", message_id="message-1")
