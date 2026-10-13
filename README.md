@@ -1,4 +1,4 @@
-# Deal Workspace
+# AWS POC Workspace
 
 Upload a PDF, ask questions about it, get answers with citations back to
 the exact page and passage.
@@ -25,6 +25,53 @@ Five things, in this order:
 If step 2 isn't running, document uploads will get stuck at the parsing
 stage — the worker will fail trying to reach the extraction service.
 
+## Manual deploy from Session Manager
+
+Use these commands while the GitHub account has no Actions minutes left.
+Connect with EC2 → the instance → **Connect** → **Session Manager**, then
+paste them. Do not use **Run workflow** until the billing cycle resets.
+Pdf-To-Knowledge must already be running on this instance at port `8001`.
+
+Update an instance that already has `/opt/aws-poc-chatbot`:
+
+```bash
+cd /opt/aws-poc-chatbot
+sudo git fetch origin
+sudo git checkout main
+sudo git pull --ff-only origin main
+sudo docker compose -f backend/docker-compose.yml up -d --build
+sudo docker compose -f backend/docker-compose.yml exec -T api python -m app.migrate seed
+curl -sf http://127.0.0.1:8080/health
+```
+
+`{"status":"ok"}` means the site and API are up. Port `8001` belongs to
+Pdf-To-Knowledge and is left alone.
+
+First time on the shared dev instance. The SSH key on the instance is the
+`karthikeyanr-mps` account key, so it can clone this repo and
+Pdf-To-Knowledge. Replace the bucket name with a real bucket in
+`us-east-1` before running the compose command.
+
+```bash
+sudo git clone git@github.com:rpasquare/Aws-POC-chatbot.git /opt/aws-poc-chatbot
+sudo tee /opt/aws-poc-chatbot/backend/.env >/dev/null <<'EOF'
+AWS_REGION=us-east-1
+S3_BUCKET=REPLACE_WITH_YOUR_BUCKET
+EXTRACTION_SERVICE_URL=http://host.docker.internal:8001
+SESSION_COOKIE_SECURE=false
+EMAIL_BACKEND=smtp
+SMTP_HOST=mailpit
+FRONTEND_BASE_URL=http://PUBLIC_IP:8080
+EOF
+cd /opt/aws-poc-chatbot
+sudo docker compose -f backend/docker-compose.yml up -d --build
+sudo docker compose -f backend/docker-compose.yml exec -T api python -m app.migrate seed
+curl -sf http://127.0.0.1:8080/health
+```
+
+Open security-group inbound TCP `8080` from the networks that should load
+the site. Leave `8000`, `5432`, and `5433` closed.
+
 ## 1. Start Postgres
 
 ```bash
@@ -32,7 +79,9 @@ cd backend
 docker compose up -d db
 ```
 
-This starts a `pgvector`-enabled Postgres on `localhost:5432`.
+This starts a `pgvector`-enabled Postgres on `localhost:5433`.
+Port 5432 is left free because a dev machine may already be running the
+Pdf-To-Knowledge database there.
 
 ## 1a. Start Mailpit (only needed for the project-invites feature)
 
@@ -111,6 +160,79 @@ curl http://localhost:8001/health   # Pdf-To-Knowledge's API
 Both should return `{"status":"ok"}`. If either worker isn't running,
 uploads will sit in a `pending_parse`/`parsing` state indefinitely instead
 of reaching `ready`.
+
+The Vite dev server proxies `/api`, `/health`, and `/ready` to port 8000,
+so the page at `http://localhost:5174` does not call that port directly.
+
+## Docker Compose on one machine
+
+From `backend/`:
+
+```bash
+docker compose up -d --build
+docker compose exec api python -m app.migrate seed
+```
+
+| Container | Software | Host port |
+|---|---|---|
+| `db` | PostgreSQL 17 with pgvector | `5433` |
+| `mailpit` | Catches invite email locally | `127.0.0.1:8025` |
+| `api` | Python 3.12, FastAPI 0.115.6, Uvicorn 0.34.0, Pydantic 2.10.4, psycopg 3.2.3, boto3 1.35.87, httpx 0.28.1, pypdfium2 5.13.0, Pillow 11.1.0, argon2-cffi 25.1.0 | `8000` |
+| `worker` | The same image as `api` | none |
+| `frontend` | Built with Node 22, served by nginx 1.27 | `8080` |
+
+`backend/.env` must set `AWS_REGION`, `S3_BUCKET`, and
+`EXTRACTION_SERVICE_URL`. On the shared dev EC2 instance that URL is
+`http://host.docker.internal:8001`, which is the Pdf-To-Knowledge API
+already published on the same machine. Compose overrides `DATABASE_URL`
+so the API uses the `db` container.
+
+## Shared dev EC2
+
+This app runs on the same instance as Pdf-To-Knowledge. It does not replace
+that service. Pdf-To-Knowledge keeps port `8001`. This app uses `8000` for
+the API and `8080` for the site. Its database stays inside Docker and is
+published on `5433`, so it does not take port `5432`.
+
+The first copy is manual. Later deploys are **Actions → CI/CD → Run
+workflow**. That workflow runs only when you start it.
+
+1. Session Manager into the instance.
+2. Clone to `/opt/aws-poc-chatbot` with the same style of read-only deploy
+   key used for Pdf-To-Knowledge. Add a second deploy key on this
+   repository, or reuse a machine user that can read both private repos.
+3. Create `backend/.env`:
+
+   ```bash
+   AWS_REGION=us-east-1
+   S3_BUCKET=your-bucket-name
+   EXTRACTION_SERVICE_URL=http://host.docker.internal:8001
+   SESSION_COOKIE_SECURE=false
+   EMAIL_BACKEND=smtp
+   SMTP_HOST=mailpit
+   FRONTEND_BASE_URL=http://PUBLIC_IP:8080
+   ```
+
+4. `docker compose -f backend/docker-compose.yml up -d --build` from
+   `/opt/aws-poc-chatbot`, then
+   `docker compose -f backend/docker-compose.yml exec api python -m app.migrate seed`.
+5. Open security-group inbound **TCP 8080** from Anywhere-IPv4. The site
+   and the API are both served there. Port `8000` can stay closed.
+6. On the instance role `pdf-to-knowledge-ec2`, allow
+   `s3:GetObject`, `s3:PutObject`, and `s3:HeadObject` on the bucket.
+   Create that bucket in `us-east-1` and add a CORS rule that allows
+   `PUT`, `GET`, and `HEAD` from `http://PUBLIC_IP:8080`. Uploads need
+   those. `/health` does not. The same role also needs
+   `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream`
+   in `us-east-1` for `amazon.titan-embed-text-v2:0` and
+   `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. Without those,
+   uploads can finish parsing and questions still fail. Invite email
+   through SES needs `ses:SendEmail` and `EMAIL_BACKEND=ses`.
+7. In this GitHub repository, add the same three Actions variables used by
+   Pdf-To-Knowledge: `AWS_REGION`, `AWS_ROLE_ARN`, and `EC2_INSTANCE_ID`.
+   The existing GitHub role can send the deploy command to this instance.
+
+`http://PUBLIC_IP:8080/health` should return `{"status":"ok"}`.
 
 ## Running tests
 

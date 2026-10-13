@@ -1,10 +1,15 @@
 /** Thin client for the Deal Workspace API.
  *
- * `X-User-Id` stands in for a resolved session until real authentication
- * lands (Sprint 4). The dev user and project ids match the seed data.
+ * A signed-in session cookie takes precedence on the server. `X-User-Id`
+ * remains as the placeholder for requests made before sign-in. The dev
+ * user and project ids match the seed data.
+ *
+ * `VITE_API_BASE` is empty in the Docker site so requests stay on the
+ * same origin (nginx proxies `/api`). Set it only when the UI is served
+ * from a different origin than the API.
  */
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 export const DEV_USER_ID = "00000000-0000-0000-0000-000000000001";
 export const DEV_PROJECT_ID = "00000000-0000-0000-0000-0000000000a1";
 
