@@ -115,7 +115,13 @@ def check_guardrail(text: str) -> GuardrailResult:
     nothing was detected) and whether anything was masked. Never raises for
     a detection — only for a configuration or transport failure after
     retries are exhausted (Requirement 16.11).
+
+    When no guardrail id is configured, the text is returned unchanged and
+    nothing is reported as masked. Callers then do not store an encrypted
+    original. This is the UAT path before the guardrail and KMS key exist.
     """
+    if not get_settings().bedrock_guardrail_id:
+        return GuardrailResult(filtered_text=text, pii_detected=False)
     response = _apply_guardrail_with_throttle_retry(text)
     pii_detected = response.get("action") == "GUARDRAIL_INTERVENED"
     outputs = response.get("outputs") or []

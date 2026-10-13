@@ -7,13 +7,15 @@ failing later inside a request or a job handler.
 
 from __future__ import annotations
 
+import logging
 import re
 from functools import lru_cache
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REGION_PATTERN = re.compile(r"^[a-z]{2}(-[a-z]+)+-\d$")
+log = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -37,22 +39,23 @@ class Settings(BaseSettings):
     """Base URL of the standalone PDF extraction service (Pdf-To-Knowledge).
     The parse stage submits jobs here instead of extracting in-process."""
 
-    bedrock_guardrail_id: str
+    bedrock_guardrail_id: str = ""
     """Identifier of the AWS Bedrock Guardrail resource configured with a
     PII policy (ANONYMIZE action) covering Name, Email, Phone, Address,
-    SSN, Credit Card and Bank Account. Required — see Requirement 16.10.
+    SSN, Credit Card and Bank Account. See Requirement 16.10.
     The guardrail resource itself is created out-of-band (console/CLI),
-    not by this application."""
+    not by this application. Leave empty, together with the version and
+    the KMS key, until those resources exist. PII masking stays off."""
 
-    bedrock_guardrail_version: str
+    bedrock_guardrail_version: str = ""
     """Published version of the guardrail above, e.g. "1" or "DRAFT" in
-    development. Required alongside bedrock_guardrail_id."""
+    development. Set together with bedrock_guardrail_id."""
 
-    pii_kms_key_id: str
+    pii_kms_key_id: str = ""
     """KMS key id or alias used for envelope encryption of
-    chunks.original_text_enc (Requirement 16.12). Required -- missing
-    PII decryption capability must fail startup, not the first time a
-    chunk with PII is indexed."""
+    chunks.original_text_enc (Requirement 16.12). Set together with the
+    guardrail id. When it is empty, original text is not stored for
+    later recovery."""
 
     # --- storage ----------------------------------------------------------
     s3_endpoint_url: str | None = None
@@ -136,6 +139,20 @@ class Settings(BaseSettings):
     frontend_base_url: str = "http://localhost:5174"
     """Used to build the accept-invite link included in the email."""
 
+    @model_validator(mode="after")
+    def _pii_settings_are_all_or_nothing(self) -> "Settings":
+        configured = (
+            bool(self.bedrock_guardrail_id),
+            bool(self.bedrock_guardrail_version),
+            bool(self.pii_kms_key_id),
+        )
+        if any(configured) and not all(configured):
+            raise ValueError(
+                "BEDROCK_GUARDRAIL_ID, BEDROCK_GUARDRAIL_VERSION, and "
+                "PII_KMS_KEY_ID must be set together"
+            )
+        return self
+
     @field_validator("email_backend")
     @classmethod
     def _email_backend_is_known(cls, value: str) -> str:
@@ -174,4 +191,7 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     """Load and cache settings. Raises pydantic.ValidationError when invalid."""
-    return Settings()
+    settings = Settings()
+    if not settings.bedrock_guardrail_id:
+        log.warning("PII masking is off until BEDROCK_GUARDRAIL_ID, BEDROCK_GUARDRAIL_VERSION, and PII_KMS_KEY_ID are set")
+    return settings
