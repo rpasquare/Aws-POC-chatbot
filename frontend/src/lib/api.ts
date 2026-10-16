@@ -326,6 +326,36 @@ export function getModelLog(messageId: string): Promise<ModelLog> {
   return request(`/api/messages/${messageId}/model-log`);
 }
 
+/** One highlight box, as percentage offsets of the page image's displayed
+ * width/height (Requirement 8.5) -- apply directly as CSS percentages so
+ * the overlay stays correctly positioned at any display size.
+ */
+export interface RegionPercent {
+  x0_pct: number;
+  y0_pct: number;
+  x1_pct: number;
+  y1_pct: number;
+}
+
+export interface ResolvedCitation {
+  available: boolean;
+  document_id: string | null;
+  filename: string | null;
+  page_no: number | null;
+  page_width: number | null;
+  page_height: number | null;
+  image_url: string | null;
+  regions: RegionPercent[];
+}
+
+/** Resolve one citation marker on one message to its page image and
+ * highlight regions, for the page viewer opened from a citation chip
+ * (Requirements 8.4, 8.5, 8.6, 8.9, 11.1). Any project role may call this.
+ */
+export function resolveCitation(messageId: string, marker: number): Promise<ResolvedCitation> {
+  return request(`/api/messages/${messageId}/citations/${marker}/resolve`);
+}
+
 /** Start a new conversation. Admin/editor only server-side -- a viewer's
  * call fails with 403 (surfaced via `request()`'s thrown Error).
  */
