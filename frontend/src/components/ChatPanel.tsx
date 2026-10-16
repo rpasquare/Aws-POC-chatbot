@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { type MessageSummary, type ModelLog, getConversationMessages, getModelLog, streamAnswer } from "../lib/api";
+import {
+  type MessageSummary,
+  type ModelLog,
+  type ResolvedCitation,
+  getConversationMessages,
+  getModelLog,
+  resolveCitation,
+  streamAnswer,
+} from "../lib/api";
 // Explicit import of the shared .primary/.error-hint/.empty-hint
 // primitives this component relies on (Requirement 13.1).
 import "../App.css";
@@ -24,20 +32,84 @@ interface LocalMessage extends MessageSummary {
   pending?: boolean;
 }
 
-function CitationChips({ citations }: { citations: MessageSummary["citations"] }) {
+/** Requirement 8.4, 11.1: a citation chip opens the cited page image with
+ * the passage highlighted when clicked. Only available citations are
+ * clickable -- an unavailable one (its document was purged, Requirement
+ * 8.9) stays a plain, disabled-looking chip, same as before.
+ */
+function CitationChips({
+  citations,
+  onOpen,
+}: {
+  citations: MessageSummary["citations"];
+  onOpen: (marker: number) => void;
+}) {
   if (citations.length === 0) return null;
   return (
     <span className="citations">
       {citations.map((c) => {
         const label = c.available && c.filename ? `${c.filename}, page ${c.page_from}` : "source unavailable";
-        return (
-          <span key={c.marker} className={`chip ${c.available ? "" : "unavailable"}`} title={label}>
+        const content = (
+          <>
             [{c.marker}]
             {c.available && c.page_from != null && <span className="chip-page"> p.{c.page_from}</span>}
-          </span>
+          </>
+        );
+        if (!c.available) {
+          return (
+            <span key={c.marker} className="chip unavailable" title={label}>
+              {content}
+            </span>
+          );
+        }
+        return (
+          <button key={c.marker} type="button" className="chip chip-clickable" title={label} onClick={() => onOpen(c.marker)}>
+            {content}
+          </button>
         );
       })}
     </span>
+  );
+}
+
+/** Requirement 8.4, 8.5: shows the cited page image with the cited
+ * region(s) marked, positioned by percentage offsets so the highlight
+ * stays correctly placed regardless of the rendered image size.
+ */
+function CitationViewer({ citation, onClose }: { citation: ResolvedCitation; onClose: () => void }) {
+  return (
+    <div className="model-log-overlay" onClick={onClose}>
+      <div className="citation-viewer-popup" onClick={(e) => e.stopPropagation()}>
+        <div className="model-log-header">
+          <h3>
+            {citation.filename ?? "Source"}
+            {citation.page_no != null && ` — page ${citation.page_no}`}
+          </h3>
+          <button type="button" className="model-log-close" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+        {!citation.available || !citation.image_url ? (
+          <p className="empty-hint">This source is no longer available.</p>
+        ) : (
+          <div className="citation-page-frame">
+            <img src={citation.image_url} alt={`Page ${citation.page_no}`} className="citation-page-image" />
+            {citation.regions.map((r, i) => (
+              <div
+                key={i}
+                className="citation-highlight"
+                style={{
+                  left: `${r.x0_pct}%`,
+                  top: `${r.y0_pct}%`,
+                  width: `${r.x1_pct - r.x0_pct}%`,
+                  height: `${r.y1_pct - r.y0_pct}%`,
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -81,6 +153,8 @@ function MessageBubble({ message }: { message: LocalMessage }) {
   const [log, setLog] = useState<ModelLog | null>(null);
   const [loadingLog, setLoadingLog] = useState(false);
   const [logError, setLogError] = useState<string | null>(null);
+  const [citation, setCitation] = useState<ResolvedCitation | null>(null);
+  const [citationError, setCitationError] = useState<string | null>(null);
 
   const handleViewLog = useCallback(async () => {
     setLogError(null);
@@ -94,6 +168,19 @@ function MessageBubble({ message }: { message: LocalMessage }) {
       setLoadingLog(false);
     }
   }, [message.id]);
+
+  const handleOpenCitation = useCallback(
+    async (marker: number) => {
+      setCitationError(null);
+      try {
+        const result = await resolveCitation(message.id, marker);
+        setCitation(result);
+      } catch (err) {
+        setCitationError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [message.id],
+  );
 
   if (message.role === "user") {
     return (
@@ -134,7 +221,7 @@ function MessageBubble({ message }: { message: LocalMessage }) {
       <div className="bubble">
         {message.text}
         {message.pending && <span className="cursor" />}
-        <CitationChips citations={message.citations} />
+        <CitationChips citations={message.citations} onOpen={handleOpenCitation} />
         {message.has_model_log && !message.pending && (
           <button
             type="button"
@@ -149,7 +236,9 @@ function MessageBubble({ message }: { message: LocalMessage }) {
         )}
       </div>
       {logError && <p className="error-hint">{logError}</p>}
+      {citationError && <p className="error-hint">{citationError}</p>}
       {log && <ModelLogPopup log={log} onClose={() => setLog(null)} />}
+      {citation && <CitationViewer citation={citation} onClose={() => setCitation(null)} />}
     </div>
   );
 }
