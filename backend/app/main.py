@@ -23,6 +23,8 @@ from app.answer_model import StreamingAnswerError, stream_answer
 from app.answering import REFUSAL_TEXT, record_refusal_message, should_refuse
 from app.auth import InvalidCredentialsError, TooManyAttemptsError, sign_in, sign_out
 from app.authz import NotAMemberError, require_role, role_on_project
+from app.citation_resolution import MessageNotFoundError as CitationMessageNotFoundError
+from app.citation_resolution import resolve_citation
 from app.citations import record_citations
 from app.config import get_settings
 from app.conversations import (
@@ -590,6 +592,61 @@ def get_model_log(
         except (MessageNotFoundError, NotAMemberError):
             raise HTTPException(status_code=404, detail=NOT_FOUND) from None
     return ModelLogResponse(message_id=log.message_id, request_text=log.request_text, response_text=log.response_text)
+
+
+class RegionPercentResponse(BaseModel):
+    x0_pct: float
+    y0_pct: float
+    x1_pct: float
+    y1_pct: float
+
+
+class CitationResolutionResponse(BaseModel):
+    available: bool
+    document_id: str | None = None
+    filename: str | None = None
+    page_no: int | None = None
+    page_width: float | None = None
+    page_height: float | None = None
+    image_url: str | None = None
+    regions: list[RegionPercentResponse] = []
+
+
+@app.get("/api/messages/{message_id}/citations/{marker}/resolve")
+def get_citation_resolution(
+    message_id: str,
+    marker: int,
+    caller_id: str = ResolvedCallerId,
+) -> CitationResolutionResponse:
+    """Resolve one citation marker to its page image and highlight regions,
+    for the page viewer opened from a citation chip (Requirements 8.4,
+    8.5, 8.6, 8.9, 12.2).
+
+    Any member (admin, editor or viewer) of the message's project may
+    open a cited page image (Requirement 11.1, resolved). 404 for a
+    non-member or a non-existent message. A citation whose chunk or
+    document was purged resolves with `available=False` rather than an
+    error (Requirement 8.9) -- not a 404, since the citation and the
+    message both still exist.
+    """
+    with db.connection() as conn:
+        try:
+            resolved = resolve_citation(conn, user_id=caller_id, message_id=message_id, marker=marker)
+        except (CitationMessageNotFoundError, NotAMemberError):
+            raise HTTPException(status_code=404, detail=NOT_FOUND) from None
+    return CitationResolutionResponse(
+        available=resolved.available,
+        document_id=resolved.document_id,
+        filename=resolved.filename,
+        page_no=resolved.page_no,
+        page_width=resolved.page_width,
+        page_height=resolved.page_height,
+        image_url=resolved.image_url,
+        regions=[
+            RegionPercentResponse(x0_pct=r.x0_pct, y0_pct=r.y0_pct, x1_pct=r.x1_pct, y1_pct=r.y1_pct)
+            for r in resolved.regions
+        ],
+    )
 
 
 class AskQuestionRequest(BaseModel):
