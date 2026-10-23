@@ -93,6 +93,9 @@ export default function App() {
               {myRole && <span className="role-chip">{myRole}</span>}
             </div>
           </button>
+          <button className="primary" style={{ marginTop: 10 }}>
+            + Add project
+          </button>
 
           <p className="eyebrow" style={{ marginTop: 24 }}>
             View
